@@ -285,3 +285,177 @@ def load_manifest(input_path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"Manifest not found: {input_path}")
     with open(input_path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def verify_index_identity(
+    indexes_dir: Path,
+    registry_path: Path | None = None,
+    collection_name: str = DEFAULT_COLLECTION_NAME,
+) -> dict[str, Any]:
+    """Verify that chunks.jsonl, Qdrant vectors, and BM25 index contain the exact same chunk IDs.
+
+    Also validates active document versions and source hashes against registry and manifest,
+    and checks that Qdrant payloads faithfully correspond to the chunk records.
+    """
+    from quorift.config import paths
+    from quorift.ingestion import load_chunks_jsonl
+
+    chunks_file = indexes_dir / "chunks.jsonl"
+    manifest_file = indexes_dir / "index_manifest.json"
+    qdrant_dir = indexes_dir / "qdrant"
+    bm25_dir = indexes_dir / "bm25"
+
+    if not chunks_file.exists():
+        raise FileNotFoundError(f"Missing chunks.jsonl in {indexes_dir}")
+    if not manifest_file.exists():
+        raise FileNotFoundError(f"Missing index_manifest.json in {indexes_dir}")
+    if not qdrant_dir.exists():
+        raise FileNotFoundError(f"Missing qdrant directory in {indexes_dir}")
+    if not bm25_dir.exists():
+        raise FileNotFoundError(f"Missing bm25 directory in {indexes_dir}")
+
+    # 1. Chunks from JSONL
+    chunks = load_chunks_jsonl(chunks_file)
+    jsonl_chunk_ids = [c["chunk_id"] for c in chunks]
+    if len(jsonl_chunk_ids) != len(set(jsonl_chunk_ids)):
+        raise ValueError("Duplicate chunk IDs detected in chunks.jsonl")
+    chunk_map = {c["chunk_id"]: c for c in chunks}
+
+    # 2. Chunks from BM25 mapping
+    _, bm25_chunk_ids = load_bm25_index(bm25_dir)
+    if len(bm25_chunk_ids) != len(set(bm25_chunk_ids)):
+        raise ValueError("Duplicate chunk IDs detected in BM25 index mapping")
+
+    # 3. Chunks from Qdrant collection
+    q_client = load_qdrant_index(qdrant_dir)
+    try:
+        q_points = []
+        next_page = None
+        while True:
+            batch, next_page = q_client.scroll(
+                collection_name=collection_name,
+                limit=100,
+                offset=next_page,
+                with_payload=True,
+                with_vectors=False,
+            )
+            q_points.extend(batch)
+            if next_page is None:
+                break
+    finally:
+        q_client.close()
+
+    qdrant_chunk_ids = [p.payload["chunk_id"] for p in q_points if p.payload]
+    if len(qdrant_chunk_ids) != len(set(qdrant_chunk_ids)):
+        raise ValueError("Duplicate chunk IDs detected in Qdrant collection")
+
+    # 4. Compare all three complete sets
+    set_jsonl = set(jsonl_chunk_ids)
+    set_bm25 = set(bm25_chunk_ids)
+    set_qdrant = set(qdrant_chunk_ids)
+
+    if set_jsonl != set_bm25:
+        missing = set_jsonl - set_bm25
+        extra = set_bm25 - set_jsonl
+        raise ValueError(f"Chunk ID mismatch between chunks.jsonl and BM25 index: missing={missing}, extra={extra}")
+
+    if set_jsonl != set_qdrant:
+        missing = set_jsonl - set_qdrant
+        extra = set_qdrant - set_jsonl
+        raise ValueError(f"Chunk ID mismatch between chunks.jsonl and Qdrant index: missing={missing}, extra={extra}")
+
+    # 5. Verify active document versions and source hashes against current registry and manifest
+    manifest = load_manifest(manifest_file)
+    reg_path = registry_path or (paths.metadata_dir / "document_registry.json")
+    if reg_path.exists():
+        with open(reg_path, encoding="utf-8") as f:
+            registry = json.load(f)
+        reg_active_map = {
+            r["document_id"]: r
+            for r in registry
+            if r.get("active_status", True)
+        }
+        manifest_active_map = {
+            d["document_id"]: d
+            for d in manifest.get("active_documents", [])
+        }
+        for doc_id, reg_doc in reg_active_map.items():
+            if doc_id not in manifest_active_map:
+                raise ValueError(f"Document {doc_id} in registry is missing from index manifest")
+            man_doc = manifest_active_map[doc_id]
+            if man_doc["source_hash"] != reg_doc["source_content_hash"]:
+                raise ValueError(
+                    f"Source hash mismatch for {doc_id} in manifest: "
+                    f"manifest={man_doc['source_hash']} vs registry={reg_doc['source_content_hash']}"
+                )
+
+        for c in chunks:
+            doc_id = c["document_id"]
+            if doc_id in reg_active_map:
+                reg_doc = reg_active_map[doc_id]
+                if c["version"] != reg_doc["active_version"]:
+                    raise ValueError(f"Chunk {c['chunk_id']} version {c['version']} != registry {reg_doc['active_version']}")
+                if c["source_hash"] != reg_doc["source_content_hash"]:
+                    raise ValueError(f"Chunk {c['chunk_id']} source_hash mismatch with registry")
+
+    # 6. Confirm Qdrant payload metadata corresponds to chunk records
+    for p in q_points:
+        cid = p.payload["chunk_id"]
+        expected_chunk = chunk_map[cid]
+        for key in ("document_id", "section_number", "version", "title", "allowed_roles"):
+            if p.payload.get(key) != expected_chunk.get(key):
+                raise ValueError(f"Qdrant payload field mismatch for {cid} on {key}")
+
+    return {
+        "status": "verified",
+        "total_chunks": len(set_jsonl),
+        "chunk_ids": sorted(list(set_jsonl)),
+    }
+
+
+def safe_promote_indexes(
+    staging_dir: Path,
+    active_dir: Path,
+    backup_dir: Path,
+    registry_path: Path | None = None,
+    collection_name: str = DEFAULT_COLLECTION_NAME,
+) -> None:
+    """Safely promote verified staged indexes to the active directory with atomic rollback."""
+    import shutil
+
+    if not staging_dir.exists():
+        raise FileNotFoundError(f"Staging directory does not exist: {staging_dir}")
+
+    # 1. Verify staged indexes before promotion
+    verify_index_identity(
+        indexes_dir=staging_dir,
+        registry_path=registry_path,
+        collection_name=collection_name,
+    )
+
+    # 2. Prepare backup
+    if backup_dir.exists():
+        shutil.rmtree(backup_dir)
+
+    had_active = active_dir.exists()
+    if had_active:
+        active_dir.rename(backup_dir)
+
+    try:
+        staging_dir.rename(active_dir)
+        # Verify promoted active directory
+        verify_index_identity(
+            indexes_dir=active_dir,
+            registry_path=registry_path,
+            collection_name=collection_name,
+        )
+        # Promotion succeeded: remove backup
+        if had_active and backup_dir.exists():
+            shutil.rmtree(backup_dir)
+    except Exception as e:
+        # Rollback
+        if active_dir.exists():
+            shutil.rmtree(active_dir)
+        if had_active and backup_dir.exists():
+            backup_dir.rename(active_dir)
+        raise RuntimeError(f"Index promotion failed and was rolled back to previous index: {e}") from e

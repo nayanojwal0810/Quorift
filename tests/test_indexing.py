@@ -12,10 +12,13 @@ from quorift.indexing import (
     load_bm25_index,
     load_manifest,
     load_qdrant_index,
+    safe_promote_indexes,
     save_manifest,
     search_bm25,
     search_qdrant,
+    verify_index_identity,
 )
+from quorift.ingestion import save_chunks_jsonl
 
 
 @pytest.fixture
@@ -256,3 +259,120 @@ def test_manifest_round_trip(sample_chunks, tmp_path):
     assert reloaded["total_chunks"] == len(sample_chunks)
     assert reloaded["total_active_documents"] == 4
     assert reloaded["embedding_dimension"] == 8
+
+
+# 8. Index identity verification catches mismatched chunk IDs
+def test_verify_index_identity_mismatched_chunks(sample_chunks, sample_embeddings, tmp_path):
+    idx_dir = tmp_path / "idx"
+    idx_dir.mkdir()
+    q_dir = idx_dir / "qdrant"
+    b_dir = idx_dir / "bm25"
+    chunks_path = idx_dir / "chunks.jsonl"
+    manifest_path = idx_dir / "index_manifest.json"
+
+    # Save chunks.jsonl with 4 chunks
+    save_chunks_jsonl(sample_chunks, chunks_path)
+
+    # Build Qdrant with all 4 chunks
+    q_client = build_qdrant_index(sample_chunks, sample_embeddings, q_dir, "test_col")
+    q_client.close()
+
+    # Build BM25 with only first 3 chunks (deliberate mismatch)
+    build_bm25_index(sample_chunks[:3], b_dir)
+
+    # Save manifest
+    manifest = build_manifest(
+        chunks=sample_chunks,
+        model_name="test-bge",
+        embedding_dim=8,
+        collection_name="test_col",
+        bm25_dir=str(b_dir),
+    )
+    save_manifest(manifest, manifest_path)
+
+    with pytest.raises(ValueError, match="Chunk ID mismatch"):
+        verify_index_identity(idx_dir, collection_name="test_col")
+
+
+# 9. Successful staging promotion replaces active directory
+def test_safe_promote_indexes_success(sample_chunks, sample_embeddings, tmp_path):
+    staging_dir = tmp_path / "staging"
+    active_dir = tmp_path / "active"
+    backup_dir = tmp_path / "backup"
+    staging_dir.mkdir()
+
+    # Create dummy registry matching sample chunks
+    dummy_registry = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+        }
+        for c in sample_chunks
+    ]
+    reg_file = tmp_path / "test_registry.json"
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(dummy_registry, f)
+
+    # Build valid indexes in staging
+    save_chunks_jsonl(sample_chunks, staging_dir / "chunks.jsonl")
+    q_client = build_qdrant_index(
+        sample_chunks, sample_embeddings, staging_dir / "qdrant", "quorift_chunks"
+    )
+    q_client.close()
+    build_bm25_index(sample_chunks, staging_dir / "bm25")
+    manifest = build_manifest(
+        chunks=sample_chunks,
+        model_name="test-bge",
+        embedding_dim=8,
+        collection_name="quorift_chunks",
+        bm25_dir=str(staging_dir / "bm25"),
+    )
+    save_manifest(manifest, staging_dir / "index_manifest.json")
+
+    safe_promote_indexes(
+        staging_dir=staging_dir,
+        active_dir=active_dir,
+        backup_dir=backup_dir,
+        registry_path=reg_file,
+        collection_name="quorift_chunks",
+    )
+
+    assert active_dir.exists()
+    assert (active_dir / "chunks.jsonl").exists()
+    assert (active_dir / "index_manifest.json").exists()
+    assert not staging_dir.exists()
+    assert not backup_dir.exists()
+
+
+# 10. Failed staged verification leaves existing active index intact
+def test_safe_promote_indexes_verification_failure_preserves_active(
+    sample_chunks, sample_embeddings, tmp_path
+):
+    staging_dir = tmp_path / "staging"
+    active_dir = tmp_path / "active"
+    backup_dir = tmp_path / "backup"
+    active_dir.mkdir()
+    staging_dir.mkdir()
+
+    # Put a sentinel file in active_dir to represent existing index
+    sentinel = active_dir / "active_sentinel.txt"
+    sentinel.write_text("existing_active_content", encoding="utf-8")
+
+    # Put corrupt/empty staging index
+    (staging_dir / "chunks.jsonl").write_text("", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        safe_promote_indexes(
+            staging_dir=staging_dir,
+            active_dir=active_dir,
+            backup_dir=backup_dir,
+        )
+
+    # Active dir must still exist with sentinel intact
+    assert active_dir.exists()
+    assert sentinel.exists()
+    assert sentinel.read_text(encoding="utf-8") == "existing_active_content"
+    assert not backup_dir.exists()

@@ -1,4 +1,4 @@
-"""Build and verify local Qdrant and BM25 indexes for Quorift banking policies."""
+"""Build and verify local Qdrant and BM25 indexes for Quorift banking policies with safe staging and rollback."""
 
 import shutil
 import sys
@@ -16,11 +16,12 @@ from quorift.indexing import (
     embed_texts,
     get_embedding_model,
     load_bm25_index,
-    load_manifest,
     load_qdrant_index,
+    safe_promote_indexes,
     save_manifest,
     search_bm25,
     search_qdrant,
+    verify_index_identity,
 )
 
 SMOKE_QUESTIONS = [
@@ -45,17 +46,90 @@ SMOKE_QUESTIONS = [
 ]
 
 
-def run_build_indexes(indexes_dir: Path | None = None) -> dict:
-    """Build chunks, dense embeddings, Qdrant index, BM25 index, and manifest."""
-    target_dir = indexes_dir or paths.indexes_dir
-    chunks_path = target_dir / "chunks.jsonl"
-    qdrant_dir = target_dir / "qdrant"
-    bm25_dir = target_dir / "bm25"
-    manifest_path = target_dir / "index_manifest.json"
+def run_smoke_checks(indexes_dir: Path, embed_model) -> list[dict]:
+    """Execute the three smoke check queries against the given indexes directory."""
+    qdrant_dir = indexes_dir / "qdrant"
+    bm25_dir = indexes_dir / "bm25"
+
+    q_client = load_qdrant_index(qdrant_dir)
+    bm25_retriever, chunk_ids = load_bm25_index(bm25_dir)
+
+    smoke_results = []
+    try:
+        for test_case in SMOKE_QUESTIONS:
+            qid = test_case["id"]
+            q_text = test_case["question"]
+            exp_doc = test_case["expected_doc"]
+            exp_sec = test_case["expected_sec"]
+
+            print(f"\n--- {qid}: \"{q_text}\" ---")
+            print(f"    Target Evidence: {exp_doc} Section {exp_sec}")
+
+            # Dense retrieval
+            q_emb = embed_texts([q_text], model=embed_model, batch_size=1, is_query=True)[0]
+            dense_hits = search_qdrant(q_client, query_vector=q_emb, limit=5)
+
+            print("\n    [Dense Qdrant Results]")
+            dense_found_rank = None
+            for h in dense_hits:
+                is_match = (h["document_id"] == exp_doc and h["section_number"] == exp_sec)
+                if is_match and dense_found_rank is None:
+                    dense_found_rank = h["rank"]
+                mark = " <-- [TARGET EVIDENCE]" if is_match else ""
+                print(f"      Rank {h['rank']}: {h['chunk_id']} (Score: {h['score']:.4f}){mark}")
+
+            # BM25 retrieval
+            bm25_hits = search_bm25(bm25_retriever, chunk_ids=chunk_ids, query=q_text, limit=5)
+
+            print("\n    [BM25 Lexical Results]")
+            bm25_found_rank = None
+            for h in bm25_hits:
+                is_match = (h["document_id"] == exp_doc and h["section_number"] == exp_sec)
+                if is_match and bm25_found_rank is None:
+                    bm25_found_rank = h["rank"]
+                mark = " <-- [TARGET EVIDENCE]" if is_match else ""
+                print(f"      Rank {h['rank']}: {h['chunk_id']} (Score: {h['score']:.4f}){mark}")
+
+            smoke_results.append(
+                {
+                    "qid": qid,
+                    "question": q_text,
+                    "expected": f"{exp_doc} Sec {exp_sec}",
+                    "dense_rank": dense_found_rank,
+                    "bm25_rank": bm25_found_rank,
+                    "dense_hits": dense_hits,
+                    "bm25_hits": bm25_hits,
+                }
+            )
+    finally:
+        q_client.close()
+
+    return smoke_results
+
+
+def run_build_indexes(
+    active_dir: Path | None = None,
+    staging_dir: Path | None = None,
+    backup_dir: Path | None = None,
+) -> dict:
+    """Build chunks and indexes into a staging directory, verify, and promote safely."""
+    target_active = active_dir or paths.indexes_dir
+    target_staging = staging_dir or (paths.data_dir / ".indexes_staging")
+    target_backup = backup_dir or (paths.data_dir / ".indexes_backup")
 
     print("=" * 60)
-    print("Quorift — Ingestion and Indexing Pipeline")
+    print("Quorift — Safe Ingestion and Indexing Pipeline")
     print("=" * 60)
+
+    # Clean prior staging directory if interrupted
+    if target_staging.exists():
+        shutil.rmtree(target_staging)
+    target_staging.mkdir(parents=True, exist_ok=True)
+
+    chunks_staging_file = target_staging / "chunks.jsonl"
+    qdrant_staging_dir = target_staging / "qdrant"
+    bm25_staging_dir = target_staging / "bm25"
+    manifest_staging_file = target_staging / "index_manifest.json"
 
     # 1. Ingestion & Section Chunking
     print("\n[1/6] Ingesting 20 policy PDFs and building section chunks...")
@@ -83,27 +157,20 @@ def run_build_indexes(indexes_dir: Path | None = None) -> dict:
     embeddings = embed_texts(texts, model=embed_model, batch_size=4, is_query=False)
     print(f"      Generated embeddings shape: {embeddings.shape} (normalized float32 vectors)")
 
-    # 4. Storage Preparation
-    print("\n[4/6] Setting up target index directories and saving chunks...")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    save_chunks_jsonl(chunks, chunks_path)
+    # 4. Save Staged Artifacts
+    print("\n[4/6] Saving staged chunk records and building Qdrant + BM25 in staging...")
+    save_chunks_jsonl(chunks, chunks_staging_file)
 
-    # 5. Build Qdrant and BM25 Indexes
-    print("\n[5/6] Building local Qdrant and BM25 indexes...")
-    # Recreate Qdrant index
     qdrant_client = build_qdrant_index(
         chunks=chunks,
         embeddings=embeddings,
-        storage_path=qdrant_dir,
+        storage_path=qdrant_staging_dir,
         collection_name=DEFAULT_COLLECTION_NAME,
     )
-    # Ensure client is properly flushed and closed before reload
     qdrant_client.close()
 
-    # Build and save BM25 index
-    build_bm25_index(chunks=chunks, storage_path=bm25_dir)
+    build_bm25_index(chunks=chunks, storage_path=bm25_staging_dir)
 
-    # Build and save manifest
     manifest = build_manifest(
         chunks=chunks,
         model_name=DEFAULT_EMBEDDING_MODEL,
@@ -111,86 +178,43 @@ def run_build_indexes(indexes_dir: Path | None = None) -> dict:
         collection_name=DEFAULT_COLLECTION_NAME,
         bm25_dir="bm25",
     )
-    save_manifest(manifest, manifest_path)
-    print("      Saved chunks.jsonl, index_manifest.json, Qdrant vectors, and BM25 index.")
+    save_manifest(manifest, manifest_staging_file)
+    print("      Staging complete: chunks.jsonl, Qdrant vectors, BM25, and manifest.")
 
-    # 6. Verification & Reload
-    print("\n[6/6] Reloading and verifying persisted indexes from disk...")
-    reloaded_manifest = load_manifest(manifest_path)
-    assert reloaded_manifest["total_chunks"] == 120
-    assert reloaded_manifest["total_active_documents"] == 20
+    # 5. Staged Verification & Smoke Checks
+    print("\n[5/6] Verifying staged index identity and running smoke checks...")
+    staged_verification = verify_index_identity(
+        indexes_dir=target_staging,
+        collection_name=DEFAULT_COLLECTION_NAME,
+    )
+    assert staged_verification["total_chunks"] == 120
 
-    reloaded_qdrant = load_qdrant_index(qdrant_dir)
-    collection_info = reloaded_qdrant.get_collection(DEFAULT_COLLECTION_NAME)
-    point_count = collection_info.points_count
-    assert point_count == 120, f"Qdrant point count mismatch: expected 120, got {point_count}"
+    print("      Running retrieval smoke checks on staged index...")
+    smoke_results = run_smoke_checks(target_staging, embed_model)
 
-    reloaded_bm25, chunk_ids = load_bm25_index(bm25_dir)
-    assert len(chunk_ids) == 120, f"BM25 chunk ID count mismatch: expected 120, got {len(chunk_ids)}"
-    print(f"      Verified: Qdrant ({point_count} points) and BM25 ({len(chunk_ids)} docs) match exactly.")
+    # 6. Safe Promotion
+    print("\n[6/6] Promoting staged indexes to active storage with atomic rollback...")
+    safe_promote_indexes(
+        staging_dir=target_staging,
+        active_dir=target_active,
+        backup_dir=target_backup,
+        collection_name=DEFAULT_COLLECTION_NAME,
+    )
 
-    # Run smoke check queries
-    print("\n" + "=" * 60)
-    print("Executing 3 Retrieval Smoke Checks (Top 5 Dense & BM25)")
-    print("=" * 60)
-
-    smoke_results = []
-    for test_case in SMOKE_QUESTIONS:
-        qid = test_case["id"]
-        q_text = test_case["question"]
-        exp_doc = test_case["expected_doc"]
-        exp_sec = test_case["expected_sec"]
-
-        print(f"\n--- {qid}: \"{q_text}\" ---")
-        print(f"    Target Evidence: {exp_doc} Section {exp_sec}")
-
-        # Dense retrieval
-        q_emb = embed_texts([q_text], model=embed_model, batch_size=1, is_query=True)[0]
-        dense_hits = search_qdrant(reloaded_qdrant, query_vector=q_emb, limit=5)
-
-        print("\n    [Dense Qdrant Results]")
-        dense_found_rank = None
-        for h in dense_hits:
-            is_match = (h["document_id"] == exp_doc and h["section_number"] == exp_sec)
-            if is_match and dense_found_rank is None:
-                dense_found_rank = h["rank"]
-            mark = " <-- [TARGET EVIDENCE]" if is_match else ""
-            print(f"      Rank {h['rank']}: {h['chunk_id']} (Score: {h['score']:.4f}){mark}")
-
-        # BM25 retrieval
-        bm25_hits = search_bm25(reloaded_bm25, chunk_ids=chunk_ids, query=q_text, limit=5)
-
-        print("\n    [BM25 Lexical Results]")
-        bm25_found_rank = None
-        for h in bm25_hits:
-            is_match = (h["document_id"] == exp_doc and h["section_number"] == exp_sec)
-            if is_match and bm25_found_rank is None:
-                bm25_found_rank = h["rank"]
-            mark = " <-- [TARGET EVIDENCE]" if is_match else ""
-            print(f"      Rank {h['rank']}: {h['chunk_id']} (Score: {h['score']:.4f}){mark}")
-
-        smoke_results.append(
-            {
-                "qid": qid,
-                "question": q_text,
-                "expected": f"{exp_doc} Sec {exp_sec}",
-                "dense_rank": dense_found_rank,
-                "bm25_rank": bm25_found_rank,
-                "dense_hits": dense_hits,
-                "bm25_hits": bm25_hits,
-            }
-        )
-
-    reloaded_qdrant.close()
+    # Final active verification
+    final_verification = verify_index_identity(
+        indexes_dir=target_active,
+        collection_name=DEFAULT_COLLECTION_NAME,
+    )
+    print(f"      Active index verified: {final_verification['total_chunks']} chunks match across all indexes.")
 
     print("\n" + "=" * 60)
-    print("Build & Verification Completed Successfully!")
+    print("Safe Build & Verification Completed Successfully!")
     print("=" * 60)
 
     return {
         "chunks_count": len(chunks),
-        "qdrant_points": point_count,
-        "bm25_docs": len(chunk_ids),
+        "total_verified_chunks": final_verification["total_chunks"],
         "smoke_results": smoke_results,
     }
 

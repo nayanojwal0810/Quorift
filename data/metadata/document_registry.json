@@ -68,7 +68,7 @@
     "active_version": "1.0",
     "effective_date": "2026-01-15",
     "relative_pdf_path": "data/documents/lnd_01.pdf",
-    "source_content_hash": "8b9746c14296b03473d5434adcaa124725233d5bc84b028455e2c12709e6d77e",
+    "source_content_hash": "b41de702abe0f4520e16190848c50e32e47c191b446488db3c73096298343ad3",
     "active_status": true
   },
   {
@@ -143,7 +143,7 @@
     "active_version": "1.0",
     "effective_date": "2026-01-15",
     "relative_pdf_path": "data/documents/fin_01.pdf",
-    "source_content_hash": "bd6801f2ba0586ddc64645f632a9e4d65191e349521f7c53fb9cb92257a1662c",
+    "source_content_hash": "3e923ade1d620d1bfe8aaabedbfc42ac3ec66450fc3303db14a3b4ce5b265431",
     "active_status": true
   },
   {
@@ -267,7 +267,7 @@
     "active_version": "1.0",
     "effective_date": "2026-01-15",
     "relative_pdf_path": "data/documents/hr_01.pdf",
-    "source_content_hash": "46216e4a2689202933d8353b2decce9758b3967bbf583df23915beb2835c59eb",
+    "source_content_hash": "aae47aca745c55cc23f832a9c5aca4764a3a2baef63052149f29cfeacf38900f",
     "active_status": true
   },
   {

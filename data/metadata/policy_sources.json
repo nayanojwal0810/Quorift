@@ -183,12 +183,12 @@
       {
         "section_number": "2.0",
         "heading": "Delegation of Approval Authority Matrix (Version 1.0)",
-        "content": "Credit sanctioning authority for eligible personal loans is graduated based on exposure and credit officer seniority: A Branch Manager may approve eligible personal loans up to INR 10 lakh. Personal loan requests exceeding INR 10 lakh and up to INR 30 lakh require formal review and approval by the Regional Credit Manager. Personal loan applications exceeding INR 30 lakh and up to the institutional maximum cap of INR 50 lakh require joint sanction by the National Credit Committee. No individual credit officer may approve credit facilities exceeding their sanctioned matrix tier. (Note: Under planned update Version 2.0, the Branch Manager discretionary approval limit is increased to INR 12 lakh, while the Regional Credit Manager boundary remains pegged at INR 30 lakh)."
+        "content": "Credit sanctioning authority for eligible personal loans is graduated based on exposure and credit officer seniority: A Branch Manager may approve eligible personal loans up to INR 10 lakh. Personal loan requests exceeding INR 10 lakh and up to INR 30 lakh require formal review and approval by the Regional Credit Manager. Personal loan applications exceeding INR 30 lakh and up to the institutional maximum cap of INR 50 lakh require joint sanction by the National Credit Committee. No individual credit officer may approve credit facilities exceeding their sanctioned matrix tier."
       },
       {
         "section_number": "3.0",
         "heading": "Debt-to-Income (DTI) Thresholds and Mandatory Risk Review Exception",
-        "content": "The standard allowable Debt-to-Income (DTI) ratio for personal loan borrowers is capped at 45% of verified net monthly income. Mandatory Exception: Any personal loan application where the applicant's verified DTI ratio exceeds 45% requires an independent credit risk review and written concurrence from the Credit Risk Assessment Unit, regardless of the loan amount requested. This mandatory review applies even if the loan amount falls well within the Branch Manager's INR 10 lakh sanctioning ceiling. This exception rule remains permanently in force under both Version 1.0 and planned Version 2.0."
+        "content": "The standard allowable Debt-to-Income (DTI) ratio for personal loan borrowers is capped at 45% of verified net monthly income. Mandatory Exception: Any personal loan application where the applicant's verified DTI ratio exceeds 45% requires an independent credit risk review and written concurrence from the Credit Risk Assessment Unit, regardless of the loan amount requested. This mandatory review applies even if the loan amount falls well within the Branch Manager's INR 10 lakh sanctioning ceiling. This exception rule applies strictly regardless of the requested loan amount or approval tier."
       },
       {
         "section_number": "4.0",
@@ -428,7 +428,7 @@
       {
         "section_number": "2.0",
         "heading": "Delegation of Reimbursement Approval Authority (Version 1.0)",
-        "content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 5,000 per claim. Reimbursement requests exceeding INR 5,000 and up to INR 25,000 require formal approval by the Finance Manager. Any expense reimbursement claim exceeding INR 25,000 requires direct review and approval by the Chief Financial Officer. (Note: Under planned update Version 2.0, the Team Lead approval limit is increased to INR 7,000, while the Finance Manager and CFO approval boundaries remain unchanged)."
+        "content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 5,000 per claim. Reimbursement requests exceeding INR 5,000 and up to INR 25,000 require formal approval by the Finance Manager. Any expense reimbursement claim exceeding INR 25,000 requires direct review and approval by the Chief Financial Officer."
       },
       {
         "section_number": "3.0",
@@ -821,7 +821,7 @@
       {
         "section_number": "2.0",
         "heading": "Annual Leave Entitlement Framework (Version 1.0)",
-        "content": "Confirmed full-time employees are entitled to 18 working days of paid annual leave per calendar year (January 1 to December 31). Annual leave is credited pro-rata at the rate of 1.5 working days for each completed calendar month of active service. Leave requests exceeding 3 consecutive working days must be submitted through the HR portal at least 7 calendar days in advance and approved by the employee's designated line manager. (Note: Under planned update Version 2.0, the standard annual leave entitlement is increased to 20 working days per calendar year, accrued at 1.67 working days per month)."
+        "content": "Confirmed full-time employees are entitled to 18 working days of paid annual leave per calendar year (January 1 to December 31). Annual leave is credited pro-rata at the rate of 1.5 working days for each completed calendar month of active service. Leave requests exceeding 3 consecutive working days must be submitted through the HR portal at least 7 calendar days in advance and approved by the employee's designated line manager."
       },
       {
         "section_number": "3.0",
