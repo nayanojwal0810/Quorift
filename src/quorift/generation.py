@@ -7,7 +7,9 @@ from typing import Any
 
 VALID_ROLES = {"admin", "compliance", "finance", "general", "hr", "lending"}
 
-SYSTEM_PROMPT = """You are Quorift, an enterprise banking assistant for Apex Crest Bank.
+REFUSAL_MESSAGE = "I cannot verify this from the available policy documents."
+
+SYSTEM_PROMPT = f"""You are Quorift, an enterprise banking assistant for Apex Crest Bank.
 Your task is to answer user questions using ONLY the provided operational policy excerpts.
 
 You must follow these strict rules:
@@ -26,22 +28,22 @@ You must follow these strict rules:
 
 Output Format:
 You must respond with a single, valid JSON object matching this schema:
-{
+{{
   "status": "answered",
   "answer": "The answer based on the provided policy.",
   "citations": ["GEN-02|1.0|2.0"]
-}
+}}
 
 Allowed statuses:
 - "answered": Use when the provided excerpts contain sufficient evidence to answer the question. Must include at least one supporting chunk ID in "citations".
 - "insufficient_evidence": Use when the excerpts do not contain sufficient evidence to answer the question. Must use empty citations [].
 
 For insufficient evidence, your response must be exactly:
-{
+{{
   "status": "insufficient_evidence",
-  "answer": "I cannot verify this from the available policy documents.",
+  "answer": "{REFUSAL_MESSAGE}",
   "citations": []
-}
+}}
 
 Do not include any conversational filler, markdown formatting, or text outside the JSON object."""
 
@@ -224,7 +226,11 @@ def validate_generation_output(
 
     citations = parsed.get("citations")
     if not isinstance(citations, list):
-        raise ValueError("Citations must be a list of strings")
+        raise ValueError(f"Citations must be a list, got {type(citations).__name__}")
+
+    for cid in citations:
+        if not isinstance(cid, str):
+            raise ValueError(f"Citation ID must be a string, got {type(cid).__name__}")
 
     # Check for duplicate citations
     if len(citations) != len(set(citations)):
@@ -236,13 +242,15 @@ def validate_generation_output(
     if status == "insufficient_evidence":
         if len(citations) > 0:
             raise ValueError(f"Refusal status 'insufficient_evidence' must have empty citations, got: {citations}")
+        if answer.strip() != REFUSAL_MESSAGE:
+            raise ValueError(
+                f"Refusal answer must exactly match the approved refusal message '{REFUSAL_MESSAGE}', got: '{answer.strip()}'"
+            )
     elif status == "answered":
         if len(citations) == 0:
             raise ValueError("Status 'answered' requires at least one valid citation")
 
         for cid in citations:
-            if not isinstance(cid, str):
-                raise ValueError(f"Citation ID must be a string, got: {type(cid).__name__}")
             if cid not in provided_chunks:
                 raise ValueError(
                     f"Fabricated citation ID '{cid}' was not present in the authorized evidence supplied to the model"
@@ -315,6 +323,6 @@ def generate_empty_evidence_response() -> dict[str, Any]:
     """Return standard safe refusal when zero authorized evidence chunks are available."""
     return {
         "status": "insufficient_evidence",
-        "answer": "I cannot verify this from the available policy documents.",
+        "answer": REFUSAL_MESSAGE,
         "citations": [],
     }

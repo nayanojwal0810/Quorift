@@ -6,6 +6,7 @@ import pytest
 
 from quorift.config import paths
 from quorift.generation import (
+    REFUSAL_MESSAGE,
     SYSTEM_PROMPT,
     VALID_ROLES,
     build_grounded_prompt,
@@ -206,16 +207,28 @@ def test_missing_citations_on_answered_rejected(sample_registry, sample_chunk_ge
 
 # 10. Valid refusal with empty citations is accepted
 def test_valid_refusal_accepted(sample_registry, sample_chunk_gen02):
-    """validate_generation_output accepts valid insufficient_evidence refusal with empty citations."""
+    """validate_generation_output accepts valid insufficient_evidence refusal with exact REFUSAL_MESSAGE."""
     parsed = {
         "status": "insufficient_evidence",
-        "answer": "I cannot verify this from the available policy documents.",
+        "answer": f"  {REFUSAL_MESSAGE}  ",  # Surrounding whitespace stripped
         "citations": [],
     }
     validated = validate_generation_output(parsed, [sample_chunk_gen02], sample_registry, role="general")
     assert validated["status"] == "insufficient_evidence"
     assert validated["citations"] == []
-    assert "I cannot verify this" in validated["answer"]
+    assert validated["answer"] == REFUSAL_MESSAGE
+
+
+# 10b. Refusal with arbitrary or fabricated text is rejected
+def test_refusal_with_fabricated_or_unsupported_text_rejected(sample_registry, sample_chunk_gen02):
+    """validate_generation_output rejects any refusal that differs from REFUSAL_MESSAGE."""
+    parsed = {
+        "status": "insufficient_evidence",
+        "answer": "I cannot verify this, but personal loans generally require INR 10 lakh.",
+        "citations": [],
+    }
+    with pytest.raises(ValueError, match="Refusal answer must exactly match the approved refusal message"):
+        validate_generation_output(parsed, [sample_chunk_gen02], sample_registry, role="general")
 
 
 # 11. Refusal with citations is rejected
@@ -223,11 +236,42 @@ def test_refusal_with_citations_rejected(sample_registry, sample_chunk_gen02):
     """validate_generation_output rejects status insufficient_evidence when citations are provided."""
     parsed = {
         "status": "insufficient_evidence",
-        "answer": "I cannot verify this.",
+        "answer": REFUSAL_MESSAGE,
         "citations": ["GEN-02|1.0|2.0"],
     }
     with pytest.raises(ValueError, match="Refusal status 'insufficient_evidence' must have empty citations"):
         validate_generation_output(parsed, [sample_chunk_gen02], sample_registry, role="general")
+
+
+# 11b. Malformed citation types produce clear ValueError
+def test_malformed_citation_types_rejected(sample_registry, sample_chunk_gen02):
+    """validate_generation_output raises clear ValueError when citations contain non-string types or not a list."""
+    # Citations not a list
+    parsed_not_list = {
+        "status": "answered",
+        "answer": "The lodging cap is INR 6,500.",
+        "citations": "GEN-02|1.0|2.0",
+    }
+    with pytest.raises(ValueError, match="Citations must be a list"):
+        validate_generation_output(parsed_not_list, [sample_chunk_gen02], sample_registry, role="general")
+
+    # Citation item is integer
+    parsed_int_item = {
+        "status": "answered",
+        "answer": "The lodging cap is INR 6,500.",
+        "citations": [123],
+    }
+    with pytest.raises(ValueError, match="Citation ID must be a string"):
+        validate_generation_output(parsed_int_item, [sample_chunk_gen02], sample_registry, role="general")
+
+    # Citation item is dictionary
+    parsed_dict_item = {
+        "status": "answered",
+        "answer": "The lodging cap is INR 6,500.",
+        "citations": [{"id": "GEN-02|1.0|2.0"}],
+    }
+    with pytest.raises(ValueError, match="Citation ID must be a string"):
+        validate_generation_output(parsed_dict_item, [sample_chunk_gen02], sample_registry, role="general")
 
 
 # 12. Malformed JSON is rejected
@@ -246,7 +290,7 @@ def test_empty_evidence_produces_refusal():
     resp = generate_empty_evidence_response()
     assert resp["status"] == "insufficient_evidence"
     assert resp["citations"] == []
-    assert resp["answer"] == "I cannot verify this from the available policy documents."
+    assert resp["answer"] == REFUSAL_MESSAGE
 
 
 # 14. Correct source metadata is resolved from trusted records
