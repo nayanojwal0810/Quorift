@@ -26,18 +26,14 @@ def test_paths_are_relative_to_root() -> None:
 
 def test_custom_project_root(tmp_path: Path) -> None:
     """Verify that ProjectPaths can be instantiated with a custom root directory."""
-    custom_paths = ProjectPaths(
-        project_root=tmp_path,
-        data_dir=tmp_path / "data",
-        documents_dir=tmp_path / "data" / "documents",
-        metadata_dir=tmp_path / "data" / "metadata",
-        evaluation_dir=tmp_path / "data" / "evaluation",
-        indexes_dir=tmp_path / "data" / "indexes",
-        reports_dir=tmp_path / "reports",
-        cache_db_path=tmp_path / "data" / "cache.sqlite3",
-    )
+    custom_paths = ProjectPaths(project_root=tmp_path)
     assert custom_paths.project_root == tmp_path
+    assert custom_paths.data_dir == tmp_path / "data"
     assert custom_paths.documents_dir == tmp_path / "data" / "documents"
+    assert custom_paths.metadata_dir == tmp_path / "data" / "metadata"
+    assert custom_paths.evaluation_dir == tmp_path / "data" / "evaluation"
+    assert custom_paths.indexes_dir == tmp_path / "data" / "indexes"
+    assert custom_paths.reports_dir == tmp_path / "reports"
     assert custom_paths.cache_db_path == tmp_path / "data" / "cache.sqlite3"
 
 

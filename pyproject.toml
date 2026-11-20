@@ -7,7 +7,9 @@ name = "quorift"
 version = "0.1.0"
 description = "Local enterprise banking knowledge assistant with RAG, semantic caching, and document permissions."
 requires-python = ">=3.11, <3.12"
-dependencies = []
+dependencies = [
+    "reportlab>=4.0.0",
+]
 
 [project.optional-dependencies]
 dev = [

@@ -1,0 +1,318 @@
+[
+  {
+    "document_id": "GEN-01",
+    "title": "Employee Handbook",
+    "department": "Operations and Governance",
+    "classification": "Internal - General",
+    "allowed_roles": [
+      "general",
+      "lending",
+      "finance",
+      "compliance",
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/gen_01.pdf",
+    "source_content_hash": "4f40ead68e80ab9fbf94ba56cd15897f1b02d3336c46c457ff0429902565fd41",
+    "active_status": true
+  },
+  {
+    "document_id": "GEN-02",
+    "title": "Travel and Expense Policy",
+    "department": "Corporate Services and Administration",
+    "classification": "Internal - General",
+    "allowed_roles": [
+      "general",
+      "lending",
+      "finance",
+      "compliance",
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/gen_02.pdf",
+    "source_content_hash": "b1480820d8326b16486ad48b34c3d5d9206ad095a66541d57865d109484d8c71",
+    "active_status": true
+  },
+  {
+    "document_id": "GEN-03",
+    "title": "Incident Reporting Procedure",
+    "department": "Operational Risk and Governance",
+    "classification": "Internal - General",
+    "allowed_roles": [
+      "general",
+      "lending",
+      "finance",
+      "compliance",
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/gen_03.pdf",
+    "source_content_hash": "97f2011afb1eedc32435a54d3a4158b4eac108a18013012f3e0da5aac13f25c7",
+    "active_status": true
+  },
+  {
+    "document_id": "LND-01",
+    "title": "Personal Loan Approval Authority",
+    "department": "Retail Lending",
+    "classification": "Confidential - Lending",
+    "allowed_roles": [
+      "lending",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/lnd_01.pdf",
+    "source_content_hash": "8b9746c14296b03473d5434adcaa124725233d5bc84b028455e2c12709e6d77e",
+    "active_status": true
+  },
+  {
+    "document_id": "LND-02",
+    "title": "Secured Loan Collateral Rules",
+    "department": "Credit Risk and Secured Lending",
+    "classification": "Confidential - Lending",
+    "allowed_roles": [
+      "lending",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/lnd_02.pdf",
+    "source_content_hash": "971167e701ebaaec7394dbbdbeb45ede27e55b8c64dd867621a8807c5e9b9c46",
+    "active_status": true
+  },
+  {
+    "document_id": "LND-03",
+    "title": "Credit Exception Escalation",
+    "department": "Credit Risk Underwriting",
+    "classification": "Confidential - Lending",
+    "allowed_roles": [
+      "lending",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/lnd_03.pdf",
+    "source_content_hash": "ae1cb1f95335526258829229d04ac9f43f28b876c1cfc5e3eb1d90e46a608e49",
+    "active_status": true
+  },
+  {
+    "document_id": "LND-04",
+    "title": "Loan Application Checklist",
+    "department": "Retail Lending Operations",
+    "classification": "Confidential - Lending",
+    "allowed_roles": [
+      "lending",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/lnd_04.pdf",
+    "source_content_hash": "27f8529e3f78a64e5bddeb2c3548f7b6df1d71d6150b568501c267bcfc40f47f",
+    "active_status": true
+  },
+  {
+    "document_id": "LND-05",
+    "title": "Disbursement and Closure Procedure",
+    "department": "Loan Servicing and Operations",
+    "classification": "Confidential - Lending",
+    "allowed_roles": [
+      "lending",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/lnd_05.pdf",
+    "source_content_hash": "687cba79728ccefa424353ed934f9bb7c653aefc31754c065c769bb62cd03a38",
+    "active_status": true
+  },
+  {
+    "document_id": "FIN-01",
+    "title": "Employee Reimbursement Authority",
+    "department": "Corporate Finance",
+    "classification": "Confidential - Finance",
+    "allowed_roles": [
+      "finance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/fin_01.pdf",
+    "source_content_hash": "bd6801f2ba0586ddc64645f632a9e4d65191e349521f7c53fb9cb92257a1662c",
+    "active_status": true
+  },
+  {
+    "document_id": "FIN-02",
+    "title": "Budget Variance Review",
+    "department": "Financial Planning and Analysis",
+    "classification": "Confidential - Finance",
+    "allowed_roles": [
+      "finance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/fin_02.pdf",
+    "source_content_hash": "c41668f22779a5a843c96a9e4bfc5130d06b53f8a0739fdb8f7759f2149f1c8b",
+    "active_status": true
+  },
+  {
+    "document_id": "FIN-03",
+    "title": "Vendor Invoice Payment Controls",
+    "department": "Accounts Payable and Treasury",
+    "classification": "Confidential - Finance",
+    "allowed_roles": [
+      "finance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/fin_03.pdf",
+    "source_content_hash": "f27320bbf7d11d789e25d45f19e23b9d68bfcf02eb4cf21a49bb34b561ee0c60",
+    "active_status": true
+  },
+  {
+    "document_id": "FIN-04",
+    "title": "Internal Audit Evidence Rules",
+    "department": "Internal Audit and Inspection",
+    "classification": "Confidential - Finance",
+    "allowed_roles": [
+      "finance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/fin_04.pdf",
+    "source_content_hash": "225c3c060489237f3c632aaf2b123e1d4e6ccc9ba6fd90a37169ea731ae8dc3e",
+    "active_status": true
+  },
+  {
+    "document_id": "CMP-01",
+    "title": "Customer KYC Verification",
+    "department": "Compliance and Regulatory Affairs",
+    "classification": "Confidential - Compliance",
+    "allowed_roles": [
+      "compliance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/cmp_01.pdf",
+    "source_content_hash": "26ab2f211bec50d0a5031e0bf44c15bcb34744757c936a69237b0eb3c7f36ac0",
+    "active_status": true
+  },
+  {
+    "document_id": "CMP-02",
+    "title": "AML Case Escalation",
+    "department": "Financial Crime Compliance",
+    "classification": "Confidential - Compliance",
+    "allowed_roles": [
+      "compliance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/cmp_02.pdf",
+    "source_content_hash": "b4c35d8561fecafb5f31963d9e06a2b43b44cdf43322699f866a91eede33b46f",
+    "active_status": true
+  },
+  {
+    "document_id": "CMP-03",
+    "title": "Customer Complaint Handling",
+    "department": "Customer Experience and Grievance Redressal",
+    "classification": "Confidential - Compliance",
+    "allowed_roles": [
+      "compliance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/cmp_03.pdf",
+    "source_content_hash": "64266cb13a04696db7b219fff37030fa33835a73ad7cb4f60a34d981be597ebb",
+    "active_status": true
+  },
+  {
+    "document_id": "CMP-04",
+    "title": "Data Retention and Access Rules",
+    "department": "Data Governance and Information Security",
+    "classification": "Confidential - Compliance",
+    "allowed_roles": [
+      "compliance",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/cmp_04.pdf",
+    "source_content_hash": "5d49129e8d4ade7385a235b984c2b8f0577a962c3a0b5d8383814b17b7cf8d40",
+    "active_status": true
+  },
+  {
+    "document_id": "HR-01",
+    "title": "Annual Leave and Attendance",
+    "department": "Human Resources",
+    "classification": "Internal - General",
+    "allowed_roles": [
+      "general",
+      "lending",
+      "finance",
+      "compliance",
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/hr_01.pdf",
+    "source_content_hash": "46216e4a2689202933d8353b2decce9758b3967bbf583df23915beb2835c59eb",
+    "active_status": true
+  },
+  {
+    "document_id": "HR-02",
+    "title": "Onboarding and Probation",
+    "department": "Talent Acquisition and HR Operations",
+    "classification": "Confidential - HR",
+    "allowed_roles": [
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/hr_02.pdf",
+    "source_content_hash": "0d2b875f965ea0ed3f258d80e3ce94b31c421e42cc88b1060cf6e455bb5c582c",
+    "active_status": true
+  },
+  {
+    "document_id": "HR-03",
+    "title": "Recruitment Approval Matrix",
+    "department": "Talent Acquisition",
+    "classification": "Confidential - HR",
+    "allowed_roles": [
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/hr_03.pdf",
+    "source_content_hash": "1216c6ae9deeac80ec7324d4925fa2a7812da8248fc57099cbaa753d6648afd3",
+    "active_status": true
+  },
+  {
+    "document_id": "HR-04",
+    "title": "Compensation Bands",
+    "department": "Total Rewards and Executive HR",
+    "classification": "Strictly Confidential - HR Executive",
+    "allowed_roles": [
+      "hr",
+      "admin"
+    ],
+    "active_version": "1.0",
+    "effective_date": "2026-01-15",
+    "relative_pdf_path": "data/documents/hr_04.pdf",
+    "source_content_hash": "b29ff1593dbdd4c77d171a204890ef6dff48f7f261bbbecc5abfc28d6a65dfc6",
+    "active_status": true
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "document_id": "LND-01",
+    "previous_version": "1.0",
+    "new_version": "2.0",
+    "new_effective_date": "2026-07-01",
+    "exact_section_changes": [
+      {
+        "section_number": "2.0",
+        "heading": "Delegation of Approval Authority Matrix (Version 2.0)",
+        "old_text_summary": "Branch Manager personal loan approval limit: up to INR 10 lakh.",
+        "new_text_summary": "Branch Manager personal loan approval limit: up to INR 12 lakh.",
+        "old_content": "Sanctioning authority for eligible personal loans is graduated based on exposure and credit officer seniority: A Branch Manager may approve eligible personal loans up to INR 10 lakh. Personal loan requests exceeding INR 10 lakh and up to INR 30 lakh require formal review and approval by the Regional Credit Manager. Personal loan applications exceeding INR 30 lakh and up to the institutional maximum cap of INR 50 lakh require joint sanction by the National Credit Committee. No individual officer may approve credit facilities exceeding their sanctioned matrix tier.",
+        "new_content": "Sanctioning authority for eligible personal loans is graduated based on exposure and credit officer seniority: A Branch Manager may approve eligible personal loans up to INR 12 lakh. Personal loan requests exceeding INR 12 lakh and up to INR 30 lakh require formal review and approval by the Regional Credit Manager. Personal loan applications exceeding INR 30 lakh and up to the institutional maximum cap of INR 50 lakh require joint sanction by the National Credit Committee. No individual officer may approve credit facilities exceeding their sanctioned matrix tier."
+      }
+    ],
+    "expected_old_value": "Branch Manager personal loan limit is INR 10 lakh under version 1.0.",
+    "expected_new_value": "Branch Manager personal loan limit is INR 12 lakh under version 2.0.",
+    "unchanged_conditions": [
+      "Regional Credit Manager boundary remains INR 30 lakh.",
+      "Debt-to-Income (DTI) ratio exceeding 45% strictly requires independent risk review regardless of amount.",
+      "Minimum Credit Bureau score of 720 remains mandatory.",
+      "Maximum loan tenure remains 60 months."
+    ]
+  },
+  {
+    "document_id": "FIN-01",
+    "previous_version": "1.0",
+    "new_version": "2.0",
+    "new_effective_date": "2026-07-01",
+    "exact_section_changes": [
+      {
+        "section_number": "2.0",
+        "heading": "Delegation of Reimbursement Approval Authority (Version 2.0)",
+        "old_text_summary": "Team Lead approval limit: up to INR 5,000 per claim.",
+        "new_text_summary": "Team Lead approval limit: up to INR 7,000 per claim.",
+        "old_content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 5,00, while claims exceeding INR 5,000 and up to INR 25,000 require Finance Manager approval. Claims exceeding INR 25,000 require direct review and approval by the Chief Financial Officer.",
+        "new_content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 7,000 per claim. Reimbursement requests exceeding INR 7,000 and up to INR 25,000 require formal approval by the Finance Manager. Any expense reimbursement claim exceeding INR 25,000 requires direct review and approval by the Chief Financial Officer."
+      }
+    ],
+    "expected_old_value": "Team Lead may approve reimbursement requests up to INR 5,000 under version 1.0.",
+    "expected_new_value": "Team Lead may approve reimbursement requests up to INR 7,000 under version 2.0.",
+    "unchanged_conditions": [
+      "Reimbursement requests above the Team Lead limit and up to INR 25,000 require Finance Manager approval.",
+      "Claims exceeding INR 25,000 require CFO approval.",
+      "Submission deadline remains 15 business days with itemized tax invoices.",
+      "Rural un-receipted transport voucher exception remains capped at INR 1,000 per claim."
+    ]
+  },
+  {
+    "document_id": "HR-01",
+    "previous_version": "1.0",
+    "new_version": "2.0",
+    "new_effective_date": "2026-07-01",
+    "exact_section_changes": [
+      {
+        "section_number": "2.0",
+        "heading": "Annual Leave Entitlement Framework (Version 2.0)",
+        "old_text_summary": "Standard annual leave entitlement: 18 working days per calendar year.",
+        "new_text_summary": "Standard annual leave entitlement: 20 working days per calendar year.",
+        "old_content": "Confirmed full-time employees are entitled to 18 working days of paid annual leave per calendar year (January 1 to December 31). Annual leave is credited pro-rata at the rate of 1.5 working days for each completed calendar month of active service. Leave requests exceeding 3 consecutive working days must be submitted through the HR portal at least 7 calendar days in advance and approved by the employee's designated line manager.",
+        "new_content": "Confirmed full-time employees are entitled to 20 working days of paid annual leave per calendar year (January 1 to December 31). Annual leave is credited pro-rata at the rate of 1.67 working days for each completed calendar month of active service. Leave requests exceeding 3 consecutive working days must be submitted through the HR portal at least 7 calendar days in advance and approved by the employee's designated line manager."
+      }
+    ],
+    "expected_old_value": "Standard annual leave entitlement is 18 working days per year under version 1.0.",
+    "expected_new_value": "Standard annual leave entitlement is 20 working days per year under version 2.0.",
+    "unchanged_conditions": [
+      "Employees in first 3 months of probation cannot avail annual leave except medical emergency.",
+      "Maximum carry-forward limit remains 8 working days into subsequent year.",
+      "Mandatory continuous block leave for sensitive roles remains 10 consecutive working days.",
+      "Leave encashment permitted only upon resignation/retirement up to 30 days."
+    ]
+  }
+]

@@ -1,0 +1,926 @@
+[
+  {
+    "scenario_id": "CACHE-01",
+    "category": "exact_repeat",
+    "description": "Exact repeat query for Tier 1 hotel ceiling under GEN-02",
+    "initial_role": "general",
+    "initial_versions": {
+      "GEN-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "What is the lodging expense ceiling per night for Tier 1 metro cities?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 6,500 per night under GEN-02 Section 2.0.",
+        "required_docs": [
+          "GEN-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "What is the lodging expense ceiling per night for Tier 1 metro cities?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "INR 6,500 per night under GEN-02 Section 2.0.",
+        "required_docs": [
+          "GEN-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-02",
+    "category": "exact_repeat",
+    "description": "Exact repeat query for Branch Manager personal loan limit under LND-01",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What is the personal loan approval limit for a Branch Manager?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 10 lakh under LND-01 Version 1.0 Section 2.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "What is the personal loan approval limit for a Branch Manager?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "INR 10 lakh under LND-01 Version 1.0 Section 2.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-03",
+    "category": "exact_repeat",
+    "description": "Exact repeat query for Team Lead reimbursement ceiling under FIN-01",
+    "initial_role": "finance",
+    "initial_versions": {
+      "FIN-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "finance",
+        "question": "What is the maximum reimbursement amount a Team Lead can approve?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 5,000 per claim under FIN-01 Version 1.0 Section 2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "finance",
+        "question": "What is the maximum reimbursement amount a Team Lead can approve?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "INR 5,000 per claim under FIN-01 Version 1.0 Section 2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-04",
+    "category": "exact_repeat",
+    "description": "Exact repeat query for annual leave entitlement under HR-01",
+    "initial_role": "general",
+    "initial_versions": {
+      "HR-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "How many annual leave days are confirmed full-time staff entitled to?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "18 working days per calendar year under HR-01 Version 1.0 Section 2.0.",
+        "required_docs": [
+          "HR-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "How many annual leave days are confirmed full-time staff entitled to?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "18 working days per calendar year under HR-01 Version 1.0 Section 2.0.",
+        "required_docs": [
+          "HR-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-05",
+    "category": "exact_repeat",
+    "description": "Exact repeat query for customer account KYC retention under CMP-04",
+    "initial_role": "compliance",
+    "initial_versions": {
+      "CMP-04": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "compliance",
+        "question": "How long must customer account opening records be preserved after closure?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "8 years following account closure under CMP-04 Section 2.0.",
+        "required_docs": [
+          "CMP-04"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "compliance",
+        "question": "How long must customer account opening records be preserved after closure?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "8 years following account closure under CMP-04 Section 2.0.",
+        "required_docs": [
+          "CMP-04"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-06",
+    "category": "exact_repeat",
+    "description": "Exact repeat query for Severity 1 incident notification SLA under GEN-03",
+    "initial_role": "general",
+    "initial_versions": {
+      "GEN-03": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "Within what deadline must a Severity 1 incident be reported?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Within 60 minutes of detection under GEN-03 Section 3.0.",
+        "required_docs": [
+          "GEN-03"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "Within what deadline must a Severity 1 incident be reported?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "Within 60 minutes of detection under GEN-03 Section 3.0.",
+        "required_docs": [
+          "GEN-03"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-07",
+    "category": "paraphrase",
+    "description": "Semantically equivalent question about gift declaration threshold",
+    "initial_role": "general",
+    "initial_versions": {
+      "GEN-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "What is the maximum gift value an employee can receive without reporting it?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Gifts up to INR 1,500 under GEN-01 Section 2.0.",
+        "required_docs": [
+          "GEN-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "Up to what amount may staff accept festive sweets or gifts without declaring them to the committee?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "Gifts up to INR 1,500 under GEN-01 Section 2.0.",
+        "required_docs": [
+          "GEN-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-08",
+    "category": "paraphrase",
+    "description": "Semantically equivalent question about residential property LTV cap",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What is the maximum loan to value ratio for residential property loans?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Maximum 75% LTV under LND-02 Section 3.0.",
+        "required_docs": [
+          "LND-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "How much can the bank lend against an appraised housing property relative to its valuation?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "Maximum 75% LTV under LND-02 Section 3.0.",
+        "required_docs": [
+          "LND-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-09",
+    "category": "paraphrase",
+    "description": "Semantically equivalent question about travel expense submission window",
+    "initial_role": "general",
+    "initial_versions": {
+      "GEN-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "Within how many days must travel expense claims be submitted after a trip?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Within 14 business days under GEN-02 Section 4.0.",
+        "required_docs": [
+          "GEN-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "What is the filing deadline for submitting business trip expense receipts?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "Within 14 business days under GEN-02 Section 4.0.",
+        "required_docs": [
+          "GEN-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-10",
+    "category": "paraphrase",
+    "description": "Semantically equivalent question about STR filing timeline",
+    "initial_role": "compliance",
+    "initial_versions": {
+      "CMP-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "compliance",
+        "question": "What is the deadline for filing a Suspicious Transaction Report once suspicion is found?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Within 7 working days under CMP-02 Section 4.0.",
+        "required_docs": [
+          "CMP-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "compliance",
+        "question": "How many business days does the Principal Officer have to submit an STR after establishing suspicion?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "Within 7 working days under CMP-02 Section 4.0.",
+        "required_docs": [
+          "CMP-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-11",
+    "category": "paraphrase",
+    "description": "Semantically equivalent question about probation confirmation review timing",
+    "initial_role": "hr",
+    "initial_versions": {
+      "HR-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "hr",
+        "question": "When is the formal probation appraisal review conducted for new hires?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "At the conclusion of month 5 under HR-02 Section 3.0.",
+        "required_docs": [
+          "HR-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "hr",
+        "question": "At which month of service does the manager complete the formal probation evaluation?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "At the conclusion of month 5 under HR-02 Section 3.0.",
+        "required_docs": [
+          "HR-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-12",
+    "category": "paraphrase",
+    "description": "Semantically equivalent question about three-way matching price tolerance",
+    "initial_role": "finance",
+    "initial_versions": {
+      "FIN-03": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "finance",
+        "question": "What is the acceptable unit price tolerance during three-way invoice matching?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Lower of 1% or INR 500 under FIN-03 Section 2.0.",
+        "required_docs": [
+          "FIN-03"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "finance",
+        "question": "How much price variance is allowed between a purchase order and vendor invoice?",
+        "intervening_event": null,
+        "expected_decision": "HIT",
+        "expected_answer_or_refusal": "Lower of 1% or INR 500 under FIN-03 Section 2.0.",
+        "required_docs": [
+          "FIN-03"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-13",
+    "category": "near_miss",
+    "description": "Near miss: Branch Manager loan limit vs Regional Credit Manager limit",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What is the approval limit for personal loans for a Branch Manager?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Up to INR 10 lakh under LND-01 Section 2.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "What is the approval limit for personal loans for a Regional Credit Manager?",
+        "intervening_event": null,
+        "expected_decision": "REJECT_EVIDENCE",
+        "expected_answer_or_refusal": "Above INR 10 lakh and up to INR 30 lakh under LND-01 Section 2.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-14",
+    "category": "near_miss",
+    "description": "Near miss: Team Lead reimbursement cap vs Finance Manager cap",
+    "initial_role": "finance",
+    "initial_versions": {
+      "FIN-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "finance",
+        "question": "What is the reimbursement authorization limit for a Team Lead?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Up to INR 5,000 under FIN-01 Section 2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "finance",
+        "question": "What is the reimbursement authorization limit for a Finance Manager?",
+        "intervening_event": null,
+        "expected_decision": "REJECT_EVIDENCE",
+        "expected_answer_or_refusal": "Above INR 5,000 and up to INR 25,000 under FIN-01 Section 2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-15",
+    "category": "near_miss",
+    "description": "Near miss: Tier 1 metro hotel ceiling vs Tier 2 city hotel ceiling",
+    "initial_role": "general",
+    "initial_versions": {
+      "GEN-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "What is the maximum hotel room rate allowed for Tier 1 metro cities?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 6,500 per night under GEN-02 Section 2.0.",
+        "required_docs": [
+          "GEN-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "What is the maximum hotel room rate allowed for Tier 2 cities?",
+        "intervening_event": null,
+        "expected_decision": "REJECT_EVIDENCE",
+        "expected_answer_or_refusal": "INR 4,500 per night under GEN-02 Section 2.0.",
+        "required_docs": [
+          "GEN-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-16",
+    "category": "near_miss",
+    "description": "Near miss: Severity 1 incident reporting SLA vs Severity 2 reporting SLA",
+    "initial_role": "general",
+    "initial_versions": {
+      "GEN-03": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "What is the mandatory reporting window for Severity 1 critical incidents?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Within 60 minutes under GEN-03 Section 3.0.",
+        "required_docs": [
+          "GEN-03"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "What is the mandatory reporting window for Severity 2 major incidents?",
+        "intervening_event": null,
+        "expected_decision": "REJECT_EVIDENCE",
+        "expected_answer_or_refusal": "Within 4 hours under GEN-03 Section 3.0.",
+        "required_docs": [
+          "GEN-03"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-17",
+    "category": "near_miss",
+    "description": "Near miss: High-Risk re-KYC interval vs Low-Risk re-KYC interval",
+    "initial_role": "compliance",
+    "initial_versions": {
+      "CMP-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "compliance",
+        "question": "How often must High-Risk customer accounts undergo periodic KYC refresh?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Every 2 years under CMP-01 Section 3.0.",
+        "required_docs": [
+          "CMP-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "compliance",
+        "question": "How often must Low-Risk customer accounts undergo periodic KYC refresh?",
+        "intervening_event": null,
+        "expected_decision": "REJECT_EVIDENCE",
+        "expected_answer_or_refusal": "Every 10 years under CMP-01 Section 3.0.",
+        "required_docs": [
+          "CMP-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-18",
+    "category": "near_miss",
+    "description": "Near miss: Residential property LTV cap vs Commercial property LTV cap",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What is the maximum LTV allowed for residential real estate?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Maximum 75% LTV under LND-02 Section 3.0.",
+        "required_docs": [
+          "LND-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "What is the maximum LTV allowed for commercial real estate?",
+        "intervening_event": null,
+        "expected_decision": "REJECT_EVIDENCE",
+        "expected_answer_or_refusal": "Maximum 65% LTV under LND-02 Section 3.0.",
+        "required_docs": [
+          "LND-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-19",
+    "category": "document_update",
+    "description": "LND-01 version update invalidates cached INR 10 lakh Branch Manager limit",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What is the Branch Manager personal loan approval limit?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 10 lakh under LND-01 v1.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "What is the Branch Manager personal loan approval limit?",
+        "intervening_event": "update_LND-01_to_v2",
+        "expected_decision": "REJECT_VERSION",
+        "expected_answer_or_refusal": "INR 12 lakh under LND-01 v2.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-20",
+    "category": "document_update",
+    "description": "FIN-01 version update invalidates cached INR 5,000 Team Lead reimbursement limit",
+    "initial_role": "finance",
+    "initial_versions": {
+      "FIN-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "finance",
+        "question": "What is the reimbursement approval limit for a Team Lead?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 5,000 under FIN-01 v1.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "finance",
+        "question": "What is the reimbursement approval limit for a Team Lead?",
+        "intervening_event": "update_FIN-01_to_v2",
+        "expected_decision": "REJECT_VERSION",
+        "expected_answer_or_refusal": "INR 7,000 under FIN-01 v2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-21",
+    "category": "document_update",
+    "description": "HR-01 version update invalidates cached 18-day annual leave entitlement",
+    "initial_role": "general",
+    "initial_versions": {
+      "HR-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "How many days of annual leave are full-time employees entitled to per year?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "18 working days under HR-01 v1.0.",
+        "required_docs": [
+          "HR-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "How many days of annual leave are full-time employees entitled to per year?",
+        "intervening_event": "update_HR-01_to_v2",
+        "expected_decision": "REJECT_VERSION",
+        "expected_answer_or_refusal": "20 working days under HR-01 v2.0.",
+        "required_docs": [
+          "HR-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-22",
+    "category": "document_update",
+    "description": "LND-01 update: DTI exception query rejected on version mismatch and re-verified",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What happens if a personal loan borrower has a DTI ratio above 45%?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Requires independent credit risk review under LND-01 Section 3.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "What happens if a personal loan borrower has a DTI ratio above 45%?",
+        "intervening_event": "update_LND-01_to_v2",
+        "expected_decision": "REJECT_VERSION",
+        "expected_answer_or_refusal": "Requires independent credit risk review under LND-01 v2.0 Section 3.0 (rule unchanged).",
+        "required_docs": [
+          "LND-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-23",
+    "category": "document_update",
+    "description": "FIN-01 update: Finance Manager approval query rejected on version mismatch",
+    "initial_role": "finance",
+    "initial_versions": {
+      "FIN-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "finance",
+        "question": "Who must approve a reimbursement request exceeding the Team Lead limit up to INR 25,000?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Finance Manager approval required under FIN-01 v1.0 Section 2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "finance",
+        "question": "Who must approve a reimbursement request exceeding the Team Lead limit up to INR 25,000?",
+        "intervening_event": "update_FIN-01_to_v2",
+        "expected_decision": "REJECT_VERSION",
+        "expected_answer_or_refusal": "Finance Manager approval required under FIN-01 v2.0 Section 2.0.",
+        "required_docs": [
+          "FIN-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-24",
+    "category": "document_update",
+    "description": "HR-01 update: Carry-forward limit query rejected on version mismatch",
+    "initial_role": "general",
+    "initial_versions": {
+      "HR-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "general",
+        "question": "How many days of unused leave can be carried forward to next year?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Maximum 8 days under HR-01 v1.0 Section 4.0.",
+        "required_docs": [
+          "HR-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "How many days of unused leave can be carried forward to next year?",
+        "intervening_event": "update_HR-01_to_v2",
+        "expected_decision": "REJECT_VERSION",
+        "expected_answer_or_refusal": "Maximum 8 days under HR-01 v2.0 Section 4.0 (rule unchanged).",
+        "required_docs": [
+          "HR-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-25",
+    "category": "permission_revocation",
+    "description": "Lending role queries LND-01, then role is changed to general: cache must deny",
+    "initial_role": "lending",
+    "initial_versions": {
+      "LND-01": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "lending",
+        "question": "What is the Branch Manager personal loan approval limit?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 10 lakh under LND-01 Section 2.0.",
+        "required_docs": [
+          "LND-01"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "What is the Branch Manager personal loan approval limit?",
+        "intervening_event": "role_switch_to_general",
+        "expected_decision": "REJECT_ROLE",
+        "expected_answer_or_refusal": "Access Denied: You do not have permission to access lending policy documents.",
+        "required_docs": [
+          "LND-01"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-26",
+    "category": "permission_revocation",
+    "description": "Finance role queries FIN-03, then role is changed to general: cache must deny",
+    "initial_role": "finance",
+    "initial_versions": {
+      "FIN-03": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "finance",
+        "question": "What is the payment release authority limit for the Financial Controller?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Up to INR 50,00,000 under FIN-03 Section 4.0.",
+        "required_docs": [
+          "FIN-03"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "general",
+        "question": "What is the payment release authority limit for the Financial Controller?",
+        "intervening_event": "role_switch_to_general",
+        "expected_decision": "REJECT_ROLE",
+        "expected_answer_or_refusal": "Access Denied: You do not have permission to access finance payment policies.",
+        "required_docs": [
+          "FIN-03"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-27",
+    "category": "permission_revocation",
+    "description": "Compliance role queries CMP-02, then role is changed to lending: cache must deny",
+    "initial_role": "compliance",
+    "initial_versions": {
+      "CMP-02": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "compliance",
+        "question": "What is the response window for High-Severity AML alerts?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "Within 24 hours under CMP-02 Section 3.0.",
+        "required_docs": [
+          "CMP-02"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "lending",
+        "question": "What is the response window for High-Severity AML alerts?",
+        "intervening_event": "role_switch_to_lending",
+        "expected_decision": "REJECT_ROLE",
+        "expected_answer_or_refusal": "Access Denied: You do not have authorization to view compliance AML policies.",
+        "required_docs": [
+          "CMP-02"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario_id": "CACHE-28",
+    "category": "permission_revocation",
+    "description": "HR role queries HR-04 compensation bands, then role is changed to finance: cache must deny",
+    "initial_role": "hr",
+    "initial_versions": {
+      "HR-04": "1.0"
+    },
+    "requests": [
+      {
+        "step": 1,
+        "role": "hr",
+        "question": "What is the compensation range for Band 4 leadership?",
+        "intervening_event": null,
+        "expected_decision": "MISS",
+        "expected_answer_or_refusal": "INR 32,00,000 to INR 60,00,000 per annum under HR-04 Section 2.0.",
+        "required_docs": [
+          "HR-04"
+        ]
+      },
+      {
+        "step": 2,
+        "role": "finance",
+        "question": "What is the compensation range for Band 4 leadership?",
+        "intervening_event": "role_switch_to_finance",
+        "expected_decision": "REJECT_ROLE",
+        "expected_answer_or_refusal": "Access Denied: Compensation band data is restricted strictly to HR and Admin roles.",
+        "required_docs": [
+          "HR-04"
+        ]
+      }
+    ]
+  }
+]
