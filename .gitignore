@@ -22,6 +22,7 @@ dist/
 *.sqlite
 *.sqlite3
 *.db
+data/indexes/
 data/bm25_index/
 data/qdrant_storage/
 models/
