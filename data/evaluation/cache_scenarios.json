@@ -617,7 +617,11 @@
         "step": 2,
         "role": "lending",
         "question": "What is the Branch Manager personal loan approval limit?",
-        "intervening_event": "update_LND-01_to_v2",
+        "intervening_event": {
+          "type": "document_update",
+          "document_id": "LND-01",
+          "new_version": "2.0"
+        },
         "expected_decision": "REJECT_VERSION",
         "expected_answer_or_refusal": "INR 12 lakh under LND-01 v2.0.",
         "required_docs": [
@@ -650,7 +654,11 @@
         "step": 2,
         "role": "finance",
         "question": "What is the reimbursement approval limit for a Team Lead?",
-        "intervening_event": "update_FIN-01_to_v2",
+        "intervening_event": {
+          "type": "document_update",
+          "document_id": "FIN-01",
+          "new_version": "2.0"
+        },
         "expected_decision": "REJECT_VERSION",
         "expected_answer_or_refusal": "INR 7,000 under FIN-01 v2.0.",
         "required_docs": [
@@ -683,7 +691,11 @@
         "step": 2,
         "role": "general",
         "question": "How many days of annual leave are full-time employees entitled to per year?",
-        "intervening_event": "update_HR-01_to_v2",
+        "intervening_event": {
+          "type": "document_update",
+          "document_id": "HR-01",
+          "new_version": "2.0"
+        },
         "expected_decision": "REJECT_VERSION",
         "expected_answer_or_refusal": "20 working days under HR-01 v2.0.",
         "required_docs": [
@@ -716,7 +728,11 @@
         "step": 2,
         "role": "lending",
         "question": "What happens if a personal loan borrower has a DTI ratio above 45%?",
-        "intervening_event": "update_LND-01_to_v2",
+        "intervening_event": {
+          "type": "document_update",
+          "document_id": "LND-01",
+          "new_version": "2.0"
+        },
         "expected_decision": "REJECT_VERSION",
         "expected_answer_or_refusal": "Requires independent credit risk review under LND-01 v2.0 Section 3.0 (rule unchanged).",
         "required_docs": [
@@ -749,7 +765,11 @@
         "step": 2,
         "role": "finance",
         "question": "Who must approve a reimbursement request exceeding the Team Lead limit up to INR 25,000?",
-        "intervening_event": "update_FIN-01_to_v2",
+        "intervening_event": {
+          "type": "document_update",
+          "document_id": "FIN-01",
+          "new_version": "2.0"
+        },
         "expected_decision": "REJECT_VERSION",
         "expected_answer_or_refusal": "Finance Manager approval required under FIN-01 v2.0 Section 2.0.",
         "required_docs": [
@@ -782,7 +802,11 @@
         "step": 2,
         "role": "general",
         "question": "How many days of unused leave can be carried forward to next year?",
-        "intervening_event": "update_HR-01_to_v2",
+        "intervening_event": {
+          "type": "document_update",
+          "document_id": "HR-01",
+          "new_version": "2.0"
+        },
         "expected_decision": "REJECT_VERSION",
         "expected_answer_or_refusal": "Maximum 8 days under HR-01 v2.0 Section 4.0 (rule unchanged).",
         "required_docs": [
@@ -794,7 +818,7 @@
   {
     "scenario_id": "CACHE-25",
     "category": "permission_revocation",
-    "description": "Lending role queries LND-01, then role is changed to general: cache must deny",
+    "description": "Lending role queries LND-01, then lending permission for LND-01 is revoked: cache must reject and deny access",
     "initial_role": "lending",
     "initial_versions": {
       "LND-01": "1.0"
@@ -813,11 +837,15 @@
       },
       {
         "step": 2,
-        "role": "general",
+        "role": "lending",
         "question": "What is the Branch Manager personal loan approval limit?",
-        "intervening_event": "role_switch_to_general",
+        "intervening_event": {
+          "type": "permission_revocation",
+          "document_id": "LND-01",
+          "role": "lending"
+        },
         "expected_decision": "REJECT_ROLE",
-        "expected_answer_or_refusal": "Access Denied: You do not have permission to access lending policy documents.",
+        "expected_answer_or_refusal": "Access Denied: Permission to access LND-01 has been revoked for the lending role.",
         "required_docs": [
           "LND-01"
         ]
@@ -827,7 +855,7 @@
   {
     "scenario_id": "CACHE-26",
     "category": "permission_revocation",
-    "description": "Finance role queries FIN-03, then role is changed to general: cache must deny",
+    "description": "Finance role queries FIN-03, then finance permission for FIN-03 is revoked: cache must reject and deny access",
     "initial_role": "finance",
     "initial_versions": {
       "FIN-03": "1.0"
@@ -846,11 +874,15 @@
       },
       {
         "step": 2,
-        "role": "general",
+        "role": "finance",
         "question": "What is the payment release authority limit for the Financial Controller?",
-        "intervening_event": "role_switch_to_general",
+        "intervening_event": {
+          "type": "permission_revocation",
+          "document_id": "FIN-03",
+          "role": "finance"
+        },
         "expected_decision": "REJECT_ROLE",
-        "expected_answer_or_refusal": "Access Denied: You do not have permission to access finance payment policies.",
+        "expected_answer_or_refusal": "Access Denied: Permission to access FIN-03 has been revoked for the finance role.",
         "required_docs": [
           "FIN-03"
         ]
@@ -860,7 +892,7 @@
   {
     "scenario_id": "CACHE-27",
     "category": "permission_revocation",
-    "description": "Compliance role queries CMP-02, then role is changed to lending: cache must deny",
+    "description": "Compliance role queries CMP-02, then compliance permission for CMP-02 is revoked: cache must reject and deny access",
     "initial_role": "compliance",
     "initial_versions": {
       "CMP-02": "1.0"
@@ -879,11 +911,15 @@
       },
       {
         "step": 2,
-        "role": "lending",
+        "role": "compliance",
         "question": "What is the response window for High-Severity AML alerts?",
-        "intervening_event": "role_switch_to_lending",
+        "intervening_event": {
+          "type": "permission_revocation",
+          "document_id": "CMP-02",
+          "role": "compliance"
+        },
         "expected_decision": "REJECT_ROLE",
-        "expected_answer_or_refusal": "Access Denied: You do not have authorization to view compliance AML policies.",
+        "expected_answer_or_refusal": "Access Denied: Permission to access CMP-02 has been revoked for the compliance role.",
         "required_docs": [
           "CMP-02"
         ]
@@ -893,7 +929,7 @@
   {
     "scenario_id": "CACHE-28",
     "category": "permission_revocation",
-    "description": "HR role queries HR-04 compensation bands, then role is changed to finance: cache must deny",
+    "description": "HR role queries HR-04 compensation bands, then hr permission for HR-04 is revoked: cache must reject and deny access",
     "initial_role": "hr",
     "initial_versions": {
       "HR-04": "1.0"
@@ -912,11 +948,15 @@
       },
       {
         "step": 2,
-        "role": "finance",
+        "role": "hr",
         "question": "What is the compensation range for Band 4 leadership?",
-        "intervening_event": "role_switch_to_finance",
+        "intervening_event": {
+          "type": "permission_revocation",
+          "document_id": "HR-04",
+          "role": "hr"
+        },
         "expected_decision": "REJECT_ROLE",
-        "expected_answer_or_refusal": "Access Denied: Compensation band data is restricted strictly to HR and Admin roles.",
+        "expected_answer_or_refusal": "Access Denied: Permission to access HR-04 has been revoked for the hr role.",
         "required_docs": [
           "HR-04"
         ]

@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-import fitz
+import pymupdf
 import pytest
 
 from quorift.config import paths
@@ -106,7 +106,7 @@ def test_02_exactly_20_policy_pdfs_exist(policy_sources):
 def test_03_every_pdf_has_extractable_text():
     pdf_files = sorted(paths.documents_dir.glob("*.pdf"))
     for pdf_path in pdf_files:
-        doc = fitz.open(pdf_path)
+        doc = pymupdf.open(pdf_path)
         assert len(doc) >= 2, f"{pdf_path.name} has fewer than 2 pages"
         assert len(doc) <= 4, f"{pdf_path.name} exceeds 4 pages"
         total_text = ""
@@ -161,9 +161,7 @@ def test_06_allowed_roles_valid(policy_sources):
         roles = set(p["allowed_roles"])
         assert roles.issubset(VALID_ROLES), f"{doc_id} contains invalid roles: {roles - VALID_ROLES}"
         assert len(roles) >= 1, f"{doc_id} allowed_roles cannot be empty"
-        # Admin must always have access
         assert "admin" in roles, f"{doc_id} must be accessible to admin"
-        # General docs must be accessible to all 6 roles
         if doc_id.startswith("GEN-") or doc_id == "HR-01":
             assert roles == VALID_ROLES, f"{doc_id} should be accessible to all six demo roles"
 
@@ -198,9 +196,12 @@ def test_09_all_source_hashes_match_normalization_rule(document_registry, policy
         assert r["source_content_hash"] == expected_hash, f"Hash mismatch for {doc_id}"
 
 
-# 10. Fact-ledger entries refer to valid documents and sections
-def test_10_fact_ledger_refers_to_valid_documents_and_sections(fact_ledger, policy_sources):
+# 10. Fact-ledger entries have unique IDs and refer to valid documents and sections
+def test_10_fact_ledger_unique_ids_and_valid_references(fact_ledger, policy_sources):
     assert len(fact_ledger) >= 80, f"Expected at least 80 facts, found {len(fact_ledger)}"
+    fact_ids = [f["fact_id"] for f in fact_ledger]
+    assert len(fact_ids) == len(set(fact_ids)), "Fact IDs must be strictly unique"
+
     policy_sections = {
         p["document_id"]: {s["section_number"] for s in p["sections"]}
         for p in policy_sources
@@ -214,25 +215,45 @@ def test_10_fact_ledger_refers_to_valid_documents_and_sections(fact_ledger, poli
         assert set(fact["permitted_roles"]).issubset(VALID_ROLES), f"Fact {fact_id} has invalid roles"
 
 
-# 11. Expected fact statements are supported by the specified policy content
-def test_11_fact_statements_supported_by_policy_content(fact_ledger, policy_sources):
+# 11. Fact statements and policy values are supported by source and update definitions
+def test_11_fact_and_answer_support(fact_ledger, policy_sources, updates):
     policy_content_map = {}
     for p in policy_sources:
         for s in p["sections"]:
             policy_content_map[(p["document_id"], s["section_number"])] = s["content"]
 
+    allowed_scopes = {"all", "1.0", "2.0"}
     for fact in fact_ledger:
         doc_id = fact["document_id"]
         sec = fact["section"]
         version_scope = fact.get("version_scope", "all")
-        # For version 2.0 replacement facts, skip checking against v1 source
-        if version_scope == "2.0":
-            continue
+        assert version_scope in allowed_scopes, f"Fact {fact['fact_id']} has unknown scope {version_scope}"
+
+        # Source section content must exist
         content = policy_content_map.get((doc_id, sec), "")
-        assert len(content) > 0, f"Missing content for {(doc_id, sec)}"
+        assert len(content) > 0, f"Missing source content for {(doc_id, sec)}"
+
+    # Check version-specific replacement facts against update records
+    facts_by_id = {f["fact_id"]: f for f in fact_ledger}
+    assert "FACT-LND-01-01-V1" in facts_by_id and "FACT-LND-01-01-V2" in facts_by_id
+    assert "INR 10 lakh" in facts_by_id["FACT-LND-01-01-V1"]["statement"]
+    assert "INR 12 lakh" in facts_by_id["FACT-LND-01-01-V2"]["statement"]
+
+    assert "FACT-FIN-01-01-V1" in facts_by_id and "FACT-FIN-01-01-V2" in facts_by_id
+    assert "INR 5,000" in facts_by_id["FACT-FIN-01-01-V1"]["statement"]
+    assert "INR 7,000" in facts_by_id["FACT-FIN-01-01-V2"]["statement"]
+
+    assert "FACT-HR-01-01-V1" in facts_by_id and "FACT-HR-01-01-V2" in facts_by_id
+    assert "18 working days" in facts_by_id["FACT-HR-01-01-V1"]["statement"]
+    assert "20 working days" in facts_by_id["FACT-HR-01-01-V2"]["statement"]
+
+    # Verify key approval limits and leave values directly in policy sources
+    assert "INR 10 lakh" in policy_content_map[("LND-01", "2.0")]
+    assert "INR 5,000" in policy_content_map[("FIN-01", "2.0")]
+    assert "18 working days" in policy_content_map[("HR-01", "2.0")]
 
 
-# 12. All three update scenarios are consistent with their initial documents
+# 12. All three update scenarios are consistent with their initial documents and future dates
 def test_12_three_update_scenarios_consistent(updates, policy_sources):
     assert len(updates) == 3, f"Expected exactly 3 updates, found {len(updates)}"
     update_doc_ids = {u["document_id"] for u in updates}
@@ -241,6 +262,7 @@ def test_12_three_update_scenarios_consistent(updates, policy_sources):
     for u in updates:
         assert u["previous_version"] == "1.0"
         assert u["new_version"] == "2.0"
+        assert u["new_effective_date"] == "2027-01-15", f"{u['document_id']} update date must be 2027-01-15"
         assert len(u["exact_section_changes"]) >= 1
         assert len(u["unchanged_conditions"]) >= 1
         assert len(u["expected_old_value"]) > 0
@@ -264,24 +286,70 @@ def test_13_questions_category_and_split_counts(questions):
     assert split_counts == EXPECTED_SPLITS, f"Split counts mismatch: {split_counts}"
 
 
-# 14. Every question refers to valid roles, states, evidence and facts
-def test_14_questions_valid_fields(questions, policy_sources, fact_ledger):
-    all_doc_ids = {p["document_id"] for p in policy_sources}
-    all_fact_ids = {f["fact_id"] for f in fact_ledger}
+# 14. Question permissions, fact consistency and valid fields
+def test_14_question_permissions_and_fact_consistency(questions, policy_sources, fact_ledger):
+    doc_roles = {p["document_id"]: set(p["allowed_roles"]) for p in policy_sources}
+    all_doc_ids = set(doc_roles.keys())
+    fact_map = {f["fact_id"]: f for f in fact_ledger}
     valid_behaviors = {"answer", "refuse_insufficient_evidence", "deny_unauthorized"}
+
+    v2_doc_map = {
+        "v2_lnd_active": "LND-01",
+        "v2_fin_active": "FIN-01",
+        "v2_hr_active": "HR-01",
+    }
 
     for q in questions:
         qid = q["question_id"]
-        assert q["role"] in VALID_ROLES, f"{qid} has invalid role: {q['role']}"
-        assert q["expected_behavior"] in valid_behaviors, f"{qid} has invalid behavior: {q['expected_behavior']}"
+        role = q["role"]
+        behavior = q["expected_behavior"]
+
+        assert role in VALID_ROLES, f"{qid} has invalid role: {role}"
+        assert behavior in valid_behaviors, f"{qid} has invalid behavior: {behavior}"
 
         for doc_id in q["gold_document_ids"]:
             assert doc_id in all_doc_ids, f"{qid} refers to unknown doc ID: {doc_id}"
 
         for fid in q["gold_fact_ids"]:
-            assert fid in all_fact_ids, f"{qid} refers to unknown fact ID: {fid}"
+            assert fid in fact_map, f"{qid} refers to unknown fact ID: {fid}"
 
-        if q["expected_behavior"] == "refuse_insufficient_evidence":
+        if behavior == "answer":
+            # Role must have access to every required supporting document
+            for doc_id in q["gold_document_ids"]:
+                assert role in doc_roles[doc_id], f"{qid}: Role {role} cannot access {doc_id}"
+
+            # Supporting facts must align with referenced docs, sections, and version scopes
+            for fid in q["gold_fact_ids"]:
+                fact = fact_map[fid]
+                assert fact["document_id"] in q["gold_document_ids"], (
+                    f"{qid}: Fact {fid} doc {fact['document_id']} not in gold docs {q['gold_document_ids']}"
+                )
+                assert fact["section"] in q["gold_sections"], (
+                    f"{qid}: Fact {fid} section {fact['section']} not in gold sections {q['gold_sections']}"
+                )
+
+                scope = fact.get("version_scope", "all")
+                corpus_state = q["corpus_state"]
+                if corpus_state == "v1_active":
+                    assert scope in ("all", "1.0"), f"{qid}: Fact {fid} scope {scope} incompatible with v1_active"
+                elif corpus_state in v2_doc_map:
+                    updated_doc = v2_doc_map[corpus_state]
+                    if fact["document_id"] == updated_doc:
+                        assert scope in ("all", "2.0"), (
+                            f"{qid}: Fact {fid} scope {scope} incompatible with updated {updated_doc}"
+                        )
+                    else:
+                        assert scope in ("all", "1.0"), (
+                            f"{qid}: Fact {fid} scope {scope} incompatible with non-updated doc in {corpus_state}"
+                        )
+
+        elif behavior == "deny_unauthorized":
+            assert len(q["gold_document_ids"]) > 0, f"Unauthorized question {qid} must reference restricted docs"
+            assert any(role not in doc_roles[d] for d in q["gold_document_ids"]), (
+                f"Unauthorized question {qid} has role {role} which is permitted for all docs {q['gold_document_ids']}"
+            )
+
+        elif behavior == "refuse_insufficient_evidence":
             assert len(q["gold_document_ids"]) == 0, f"Unanswerable {qid} should not have gold documents"
             assert len(q["gold_fact_ids"]) == 0, f"Unanswerable {qid} should not have gold facts"
 
@@ -297,8 +365,16 @@ def test_15_scenario_groups_do_not_cross_splits(questions):
         assert len(splits) == 1, f"Scenario group '{grp}' crosses splits: {splits}"
 
 
-# 16. Exactly 28 cache scenarios and 20 injection cases exist
-def test_16_cache_and_injection_counts(cache_scenarios, injection_cases):
+# 16. Cache scenario correctness and injection eligibility
+def test_16_cache_and_injection_validation(cache_scenarios, injection_cases, policy_sources):
+    doc_roles = {p["document_id"]: set(p["allowed_roles"]) for p in policy_sources}
+    all_doc_ids = set(doc_roles.keys())
+    policy_sections = {
+        p["document_id"]: {s["section_number"] for s in p["sections"]}
+        for p in policy_sources
+    }
+
+    # Validate cache scenarios
     assert len(cache_scenarios) == 28, f"Expected 28 cache scenarios, found {len(cache_scenarios)}"
     cache_cat_counts = {}
     for c in cache_scenarios:
@@ -312,6 +388,39 @@ def test_16_cache_and_injection_counts(cache_scenarios, injection_cases):
     }
     assert cache_cat_counts == expected_cache_cats, f"Cache category counts mismatch: {cache_cat_counts}"
 
+    for s in cache_scenarios:
+        reqs = s["requests"]
+        assert len(reqs) == 2, f"Scenario {s['scenario_id']} must have exactly 2 requests"
+
+        # Step 1 must always warm the cache without intervening events
+        assert reqs[0]["step"] == 1
+        assert reqs[0]["intervening_event"] is None
+        assert reqs[0]["expected_decision"] == "MISS"
+        assert reqs[0]["role"] in VALID_ROLES
+
+        # Validate structured intervening events in Step 2
+        ev = reqs[1]["intervening_event"]
+        if s["category"] == "permission_revocation":
+            # Role remains unchanged between requests
+            assert reqs[0]["role"] == reqs[1]["role"], (
+                f"{s['scenario_id']} revocation test must retain the same role across requests"
+            )
+            assert isinstance(ev, dict) and ev.get("type") == "permission_revocation"
+            assert ev.get("document_id") in all_doc_ids
+            assert ev.get("role") in VALID_ROLES
+            assert ev.get("role") == reqs[1]["role"]
+            assert reqs[1]["expected_decision"] == "REJECT_ROLE"
+
+        elif s["category"] == "document_update":
+            assert isinstance(ev, dict) and ev.get("type") == "document_update"
+            assert ev.get("document_id") in {"LND-01", "FIN-01", "HR-01"}
+            assert ev.get("new_version") == "2.0"
+            assert reqs[1]["expected_decision"] == "REJECT_VERSION"
+
+        else:
+            assert ev is None, f"{s['scenario_id']} of category {s['category']} should not have intervening event"
+
+    # Validate injection cases
     assert len(injection_cases) == 20, f"Expected 20 injection cases, found {len(injection_cases)}"
     inj_cat_counts = {}
     for inj in injection_cases:
@@ -325,19 +434,20 @@ def test_16_cache_and_injection_counts(cache_scenarios, injection_cases):
     }
     assert inj_cat_counts == expected_inj_cats, f"Injection category counts mismatch: {inj_cat_counts}"
 
+    for inj in injection_cases:
+        cid = inj["case_id"]
+        doc_id = inj["target_document_id"]
+        sec = inj["target_section"]
+        role = inj["employee_role"]
 
-# 17. The original configuration tests still pass
-def test_17_original_configuration_tests_still_pass():
-    from tests.test_config import (
-        test_project_root_structure,
-        test_paths_are_relative_to_root,
-        test_custom_project_root,
-        test_expected_directory_names,
-    )
-    test_project_root_structure()
-    test_paths_are_relative_to_root()
-    test_expected_directory_names()
-    # Test custom project root with a tmp_path
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        test_custom_project_root(Path(tmp_dir))
+        assert doc_id in all_doc_ids, f"{cid} targets unknown doc ID {doc_id}"
+        assert sec in policy_sections[doc_id], f"{cid} targets unknown section {sec} in {doc_id}"
+        # Every injection case must use an authorized role for its target document
+        assert role in doc_roles[doc_id], (
+            f"{cid}: Role {role} must be authorized for target document {doc_id} to test injection"
+        )
+
+        if inj["category"] == "benign_control":
+            assert inj["is_malicious"] is False, f"{cid} benign control must have is_malicious=False"
+        else:
+            assert inj["is_malicious"] is True, f"{cid} attack case must have is_malicious=True"

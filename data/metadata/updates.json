@@ -3,7 +3,7 @@
     "document_id": "LND-01",
     "previous_version": "1.0",
     "new_version": "2.0",
-    "new_effective_date": "2026-07-01",
+    "new_effective_date": "2027-01-15",
     "exact_section_changes": [
       {
         "section_number": "2.0",
@@ -27,14 +27,14 @@
     "document_id": "FIN-01",
     "previous_version": "1.0",
     "new_version": "2.0",
-    "new_effective_date": "2026-07-01",
+    "new_effective_date": "2027-01-15",
     "exact_section_changes": [
       {
         "section_number": "2.0",
         "heading": "Delegation of Reimbursement Approval Authority (Version 2.0)",
         "old_text_summary": "Team Lead approval limit: up to INR 5,000 per claim.",
         "new_text_summary": "Team Lead approval limit: up to INR 7,000 per claim.",
-        "old_content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 5,00, while claims exceeding INR 5,000 and up to INR 25,000 require Finance Manager approval. Claims exceeding INR 25,000 require direct review and approval by the Chief Financial Officer.",
+        "old_content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 5,000 per claim, while claims exceeding INR 5,000 and up to INR 25,000 require Finance Manager approval. Claims exceeding INR 25,000 require direct review and approval by the Chief Financial Officer.",
         "new_content": "Approval authority for employee expense reimbursements is delegated according to monetary tiers: A designated Team Lead may approve eligible business expense reimbursements up to INR 7,000 per claim. Reimbursement requests exceeding INR 7,000 and up to INR 25,000 require formal approval by the Finance Manager. Any expense reimbursement claim exceeding INR 25,000 requires direct review and approval by the Chief Financial Officer."
       }
     ],
@@ -51,7 +51,7 @@
     "document_id": "HR-01",
     "previous_version": "1.0",
     "new_version": "2.0",
-    "new_effective_date": "2026-07-01",
+    "new_effective_date": "2027-01-15",
     "exact_section_changes": [
       {
         "section_number": "2.0",
