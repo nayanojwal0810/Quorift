@@ -90,6 +90,18 @@ def run_smoke_checks(indexes_dir: Path, embed_model) -> list[dict]:
                 mark = " <-- [TARGET EVIDENCE]" if is_match else ""
                 print(f"      Rank {h['rank']}: {h['chunk_id']} (Score: {h['score']:.4f}){mark}")
 
+            # Verify top 5 smoke requirement
+            if dense_found_rank is None or dense_found_rank > 5:
+                raise ValueError(
+                    f"Smoke check failed for {qid} ('{q_text}'): "
+                    f"Target evidence {exp_doc} Section {exp_sec} was not found in top 5 dense results."
+                )
+            if bm25_found_rank is None or bm25_found_rank > 5:
+                raise ValueError(
+                    f"Smoke check failed for {qid} ('{q_text}'): "
+                    f"Target evidence {exp_doc} Section {exp_sec} was not found in top 5 BM25 results."
+                )
+
             smoke_results.append(
                 {
                     "qid": qid,
@@ -120,6 +132,30 @@ def run_build_indexes(
     print("=" * 60)
     print("Quorift — Safe Ingestion and Indexing Pipeline")
     print("=" * 60)
+
+    # Safe handling of unresolved backup before rebuilding
+    if target_backup.exists():
+        if target_active.exists():
+            raise RuntimeError(
+                f"Unresolved backup directory found at '{target_backup}' while active index '{target_active}' exists. "
+                "An interrupted build must be resolved before proceeding. "
+                "Do not automatically delete existing backups."
+            )
+        else:
+            print(f"Active index missing; restoring from verified backup '{target_backup}'...")
+            try:
+                verify_index_identity(
+                    indexes_dir=target_backup,
+                    collection_name=DEFAULT_COLLECTION_NAME,
+                    validate_registry=False,
+                )
+                target_backup.rename(target_active)
+                print("Active index successfully restored from backup.")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Active index is missing and backup at '{target_backup}' failed structural verification: {e}. "
+                    "Preserving backup and stopping."
+                ) from e
 
     # Clean prior staging directory if interrupted
     if target_staging.exists():

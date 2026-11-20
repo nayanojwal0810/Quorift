@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from quorift.indexing import (
+    DEFAULT_COLLECTION_NAME,
     build_bm25_index,
     build_manifest,
     build_qdrant_index,
@@ -347,17 +348,39 @@ def test_safe_promote_indexes_success(sample_chunks, sample_embeddings, tmp_path
     assert not backup_dir.exists()
 
 
-# 10. Failed staged verification leaves existing active index intact
-def test_safe_promote_indexes_verification_failure_preserves_active(
-    sample_chunks, sample_embeddings, tmp_path
-):
+# 10. Existing backup must not be silently deleted when active exists
+def test_safe_promote_indexes_existing_backup_not_deleted(tmp_path):
+    staging_dir = tmp_path / "staging"
+    active_dir = tmp_path / "active"
+    backup_dir = tmp_path / "backup"
+    staging_dir.mkdir()
+    active_dir.mkdir()
+    backup_dir.mkdir()
+
+    sentinel_backup = backup_dir / "preserved_backup.txt"
+    sentinel_backup.write_text("critical_backup_data", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Unresolved backup directory found"):
+        safe_promote_indexes(
+            staging_dir=staging_dir,
+            active_dir=active_dir,
+            backup_dir=backup_dir,
+        )
+
+    # Backup directory and content must remain untouched
+    assert backup_dir.exists()
+    assert sentinel_backup.exists()
+    assert sentinel_backup.read_text(encoding="utf-8") == "critical_backup_data"
+
+
+# 11. Failed staged verification leaves existing active index intact
+def test_safe_promote_indexes_verification_failure_preserves_active(tmp_path):
     staging_dir = tmp_path / "staging"
     active_dir = tmp_path / "active"
     backup_dir = tmp_path / "backup"
     active_dir.mkdir()
     staging_dir.mkdir()
 
-    # Put a sentinel file in active_dir to represent existing index
     sentinel = active_dir / "active_sentinel.txt"
     sentinel.write_text("existing_active_content", encoding="utf-8")
 
@@ -376,3 +399,238 @@ def test_safe_promote_indexes_verification_failure_preserves_active(
     assert sentinel.exists()
     assert sentinel.read_text(encoding="utf-8") == "existing_active_content"
     assert not backup_dir.exists()
+
+
+# 12. Failed promotion restores previous active index
+def test_safe_promote_indexes_failed_promotion_restores_active(
+    sample_chunks, sample_embeddings, tmp_path, monkeypatch
+):
+    staging_dir = tmp_path / "staging"
+    active_dir = tmp_path / "active"
+    backup_dir = tmp_path / "backup"
+    staging_dir.mkdir()
+    active_dir.mkdir()
+
+    sentinel_active = active_dir / "active_original.txt"
+    sentinel_active.write_text("active_v1", encoding="utf-8")
+
+    dummy_registry = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+        }
+        for c in sample_chunks
+    ]
+    reg_file = tmp_path / "test_registry.json"
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(dummy_registry, f)
+
+    # Build valid indexes in staging
+    save_chunks_jsonl(sample_chunks, staging_dir / "chunks.jsonl")
+    q_client = build_qdrant_index(
+        sample_chunks, sample_embeddings, staging_dir / "qdrant", "quorift_chunks"
+    )
+    q_client.close()
+    build_bm25_index(sample_chunks, staging_dir / "bm25")
+    manifest = build_manifest(
+        chunks=sample_chunks,
+        model_name="test-bge",
+        embedding_dim=8,
+        collection_name="quorift_chunks",
+        bm25_dir=str(staging_dir / "bm25"),
+    )
+    save_manifest(manifest, staging_dir / "index_manifest.json")
+
+    # Deliberately fail the post-promotion verification
+    orig_verify = verify_index_identity
+    calls = []
+
+    def failing_verify(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:  # Second call is post-promotion verification
+            raise ValueError("Deliberate post-promotion failure")
+        return orig_verify(*args, **kwargs)
+
+    monkeypatch.setattr("quorift.indexing.verify_index_identity", failing_verify)
+
+    with pytest.raises(RuntimeError, match="rolled back to previous active index"):
+        safe_promote_indexes(
+            staging_dir=staging_dir,
+            active_dir=active_dir,
+            backup_dir=backup_dir,
+            registry_path=reg_file,
+            collection_name="quorift_chunks",
+        )
+
+    # Active index should be restored
+    assert active_dir.exists()
+    assert (active_dir / "active_original.txt").exists()
+    assert (active_dir / "active_original.txt").read_text(encoding="utf-8") == "active_v1"
+
+
+# 13. Failed rollback does not falsely report success and preserves backup
+def test_safe_promote_indexes_failed_rollback_preserves_backup_and_reports_error(
+    sample_chunks, sample_embeddings, tmp_path, monkeypatch
+):
+    staging_dir = tmp_path / "staging"
+    active_dir = tmp_path / "active"
+    backup_dir = tmp_path / "backup"
+    staging_dir.mkdir()
+    active_dir.mkdir()
+
+    (active_dir / "sentinel.txt").write_text("orig_active", encoding="utf-8")
+
+    dummy_registry = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+        }
+        for c in sample_chunks
+    ]
+    reg_file = tmp_path / "test_registry.json"
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(dummy_registry, f)
+
+    save_chunks_jsonl(sample_chunks, staging_dir / "chunks.jsonl")
+    q_client = build_qdrant_index(
+        sample_chunks, sample_embeddings, staging_dir / "qdrant", "quorift_chunks"
+    )
+    q_client.close()
+    build_bm25_index(sample_chunks, staging_dir / "bm25")
+    manifest = build_manifest(
+        chunks=sample_chunks,
+        model_name="test-bge",
+        embedding_dim=8,
+        collection_name="quorift_chunks",
+        bm25_dir=str(staging_dir / "bm25"),
+    )
+    save_manifest(manifest, staging_dir / "index_manifest.json")
+
+    # Cause promotion to fail and also block rollback rename
+    orig_verify = verify_index_identity
+    calls = []
+
+    def failing_verify(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            raise ValueError("Deliberate promotion failure")
+        return orig_verify(*args, **kwargs)
+
+    monkeypatch.setattr("quorift.indexing.verify_index_identity", failing_verify)
+
+    orig_rename = Path.rename
+
+    def failing_rename(self, target):
+        if str(self) == str(backup_dir) and str(target) == str(active_dir):
+            raise OSError("Injected disk failure during rollback")
+        return orig_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing_rename)
+
+    with pytest.raises(RuntimeError, match="ROLLBACK FAILED"):
+        safe_promote_indexes(
+            staging_dir=staging_dir,
+            active_dir=active_dir,
+            backup_dir=backup_dir,
+            registry_path=reg_file,
+            collection_name="quorift_chunks",
+        )
+
+    # Backup must be preserved
+    assert backup_dir.exists()
+
+
+# 14. Missing active index with recoverable backup is safely handled
+def test_safe_promote_indexes_missing_active_recovers_backup(
+    sample_chunks, sample_embeddings, tmp_path
+):
+    staging_dir = tmp_path / "staging"
+    active_dir = tmp_path / "active"  # Does not exist initially
+    backup_dir = tmp_path / "backup"
+    staging_dir.mkdir()
+    backup_dir.mkdir()
+
+    # Put structurally valid index into backup
+    save_chunks_jsonl(sample_chunks, backup_dir / "chunks.jsonl")
+    q_client = build_qdrant_index(
+        sample_chunks, sample_embeddings, backup_dir / "qdrant", "quorift_chunks"
+    )
+    q_client.close()
+    build_bm25_index(sample_chunks, backup_dir / "bm25")
+    manifest = build_manifest(
+        chunks=sample_chunks,
+        model_name="test-bge",
+        embedding_dim=8,
+        collection_name="quorift_chunks",
+        bm25_dir=str(backup_dir / "bm25"),
+    )
+    save_manifest(manifest, backup_dir / "index_manifest.json")
+
+    # Put valid index into staging as well
+    dummy_registry = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+        }
+        for c in sample_chunks
+    ]
+    reg_file = tmp_path / "test_registry.json"
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(dummy_registry, f)
+
+    save_chunks_jsonl(sample_chunks, staging_dir / "chunks.jsonl")
+    q_client2 = build_qdrant_index(
+        sample_chunks, sample_embeddings, staging_dir / "qdrant", "quorift_chunks"
+    )
+    q_client2.close()
+    build_bm25_index(sample_chunks, staging_dir / "bm25")
+    save_manifest(manifest, staging_dir / "index_manifest.json")
+
+    safe_promote_indexes(
+        staging_dir=staging_dir,
+        active_dir=active_dir,
+        backup_dir=backup_dir,
+        registry_path=reg_file,
+        collection_name="quorift_chunks",
+    )
+
+    assert active_dir.exists()
+    assert (active_dir / "chunks.jsonl").exists()
+    assert not backup_dir.exists()
+
+
+# 15. Smoke checks raise error when target evidence is missing
+def test_smoke_checks_fail_on_missing_evidence(sample_chunks, sample_embeddings, tmp_path):
+    from unittest.mock import MagicMock
+    from scripts.build_indexes import run_smoke_checks
+
+    idx_dir = tmp_path / "idx_smoke"
+    idx_dir.mkdir()
+
+    # Build index with chunks that do NOT contain HR-01 or FIN-01
+    missing_chunks = sample_chunks[:2]
+    raw_vecs = np.zeros((len(missing_chunks), 768), dtype=np.float32)
+    for i in range(len(missing_chunks)):
+        raw_vecs[i, i] = 1.0
+
+    save_chunks_jsonl(missing_chunks, idx_dir / "chunks.jsonl")
+    q_client = build_qdrant_index(
+        missing_chunks, raw_vecs, idx_dir / "qdrant", DEFAULT_COLLECTION_NAME
+    )
+    q_client.close()
+    build_bm25_index(missing_chunks, idx_dir / "bm25")
+
+    mock_model = MagicMock()
+    mock_model.encode = MagicMock(return_value=np.zeros((1, 768), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="Smoke check failed"):
+        run_smoke_checks(idx_dir, mock_model)

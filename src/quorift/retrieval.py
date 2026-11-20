@@ -17,6 +17,7 @@ from quorift.indexing import (
     load_qdrant_index,
     search_bm25,
     search_qdrant,
+    verify_index_identity,
 )
 from quorift.ingestion import load_chunks_jsonl
 
@@ -35,6 +36,8 @@ class HybridRetriever:
         registry_path: Path | None = None,
         collection_name: str = DEFAULT_COLLECTION_NAME,
     ):
+        import json
+
         self.indexes_dir = indexes_dir or paths.indexes_dir
         self.collection_name = collection_name
         self.registry_path = registry_path or (paths.metadata_dir / "document_registry.json")
@@ -47,27 +50,67 @@ class HybridRetriever:
         qdrant_dir = self.indexes_dir / "qdrant"
         bm25_dir = self.indexes_dir / "bm25"
 
-        # 1. Load chunk records
+        if not manifest_file.exists():
+            raise FileNotFoundError(f"Index manifest not found: {manifest_file}")
+        if not self.registry_path.exists():
+            raise FileNotFoundError(f"Document registry not found: {self.registry_path}")
+
+        # 1. Startup verification: reject stale, incomplete or inconsistent indexes BEFORE loading model
+        verify_index_identity(
+            indexes_dir=self.indexes_dir,
+            registry_path=self.registry_path,
+            collection_name=self.collection_name,
+            validate_registry=True,
+        )
+
+        # 2. Load trusted document registry for dynamic active version/hash validation
+        with open(self.registry_path, encoding="utf-8") as f:
+            registry_list = json.load(f)
+        self.active_registry: dict[str, dict[str, Any]] = {
+            r["document_id"]: r
+            for r in registry_list
+            if r.get("active_status", True)
+        }
+
+        # 3. Load chunk records & manifest
         raw_chunks = load_chunks_jsonl(chunks_file)
         self.chunks_by_id: dict[str, dict[str, Any]] = {
             c["chunk_id"]: c for c in raw_chunks
         }
-
-        # 2. Load manifest
         self.manifest = load_manifest(manifest_file)
 
-        # 3. Connect to Qdrant persistent local store
-        self.qdrant_client: QdrantClient = load_qdrant_index(qdrant_dir)
+        # 4. Connect to Qdrant & BM25
+        self.qdrant_client: QdrantClient | None = None
+        try:
+            self.qdrant_client = load_qdrant_index(qdrant_dir)
+            self.bm25_retriever, self.bm25_chunk_ids = load_bm25_index(bm25_dir)
 
-        # 4. Load BM25 index and chunk ID map
-        self.bm25_retriever, self.bm25_chunk_ids = load_bm25_index(bm25_dir)
+            # 5. Embedding model: only loaded after all startup checks and connections succeed
+            if model is not None:
+                self.model = model
+            else:
+                model_name = self.manifest.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
+                self.model = get_embedding_model(model_name=model_name, device="cpu")
+        except Exception:
+            if self.qdrant_client is not None:
+                self.qdrant_client.close()
+            raise
 
-        # 5. Embedding model (loaded once or passed in)
-        if model is not None:
-            self.model = model
-        else:
-            model_name = self.manifest.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
-            self.model = get_embedding_model(model_name=model_name, device="cpu")
+    def is_candidate_valid(self, chunk_data: dict[str, Any] | None, role: str) -> bool:
+        """Verify chunk belongs to active document, matches active version & hash, and role is allowed."""
+        if not chunk_data:
+            return False
+        doc_id = chunk_data.get("document_id")
+        if doc_id not in self.active_registry:
+            return False
+        active_doc = self.active_registry[doc_id]
+        if chunk_data.get("version") != active_doc.get("active_version"):
+            return False
+        if chunk_data.get("source_hash") != active_doc.get("source_content_hash"):
+            return False
+        if role not in chunk_data.get("allowed_roles", []):
+            return False
+        return True
 
     def dense_search(
         self,
@@ -88,18 +131,18 @@ class HybridRetriever:
             client=self.qdrant_client,
             query_vector=q_vec,
             collection_name=self.collection_name,
-            limit=candidate_k,
+            limit=len(self.chunks_by_id),
             role_filter=role,
         )
 
-        # Ensure active version filter
         filtered_hits: list[dict[str, Any]] = []
         for h in hits:
             chunk_data = self.chunks_by_id.get(h["chunk_id"])
-            if chunk_data and chunk_data.get("version") == "1.0":
+            if self.is_candidate_valid(chunk_data, role):
                 filtered_hits.append(h)
+            if len(filtered_hits) >= candidate_k:
+                break
 
-        # Re-assign 1-based ranks
         for rank, h in enumerate(filtered_hits, start=1):
             h["rank"] = rank
 
@@ -130,10 +173,7 @@ class HybridRetriever:
         filtered_hits: list[dict[str, Any]] = []
         for h in all_hits:
             chunk_data = self.chunks_by_id.get(h["chunk_id"])
-            if not chunk_data:
-                continue
-            # Filter: permitted role and active version
-            if role in chunk_data.get("allowed_roles", []) and chunk_data.get("version") == "1.0":
+            if self.is_candidate_valid(chunk_data, role):
                 filtered_hits.append(
                     {
                         "rank": len(filtered_hits) + 1,
@@ -194,8 +234,8 @@ class HybridRetriever:
         results: list[dict[str, Any]] = []
         for rank, cid in enumerate(sorted_chunk_ids[:top_k], start=1):
             chunk_data = self.chunks_by_id[cid]
-            # Security sanity check: never return unauthorized evidence
-            if role not in chunk_data.get("allowed_roles", []):
+            # Security & freshness sanity check: never return unauthorized or inactive evidence
+            if not self.is_candidate_valid(chunk_data, role):
                 continue
 
             results.append(

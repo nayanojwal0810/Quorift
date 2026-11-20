@@ -255,6 +255,7 @@ def build_manifest(
             doc_map[doc_id] = {
                 "document_id": doc_id,
                 "version": c["version"],
+                "active_version": c["version"],
                 "source_hash": c["source_hash"],
             }
 
@@ -291,6 +292,7 @@ def verify_index_identity(
     indexes_dir: Path,
     registry_path: Path | None = None,
     collection_name: str = DEFAULT_COLLECTION_NAME,
+    validate_registry: bool = True,
 ) -> dict[str, Any]:
     """Verify that chunks.jsonl, Qdrant vectors, and BM25 index contain the exact same chunk IDs.
 
@@ -367,43 +369,80 @@ def verify_index_identity(
     # 5. Verify active document versions and source hashes against current registry and manifest
     manifest = load_manifest(manifest_file)
     reg_path = registry_path or (paths.metadata_dir / "document_registry.json")
-    if reg_path.exists():
+
+    if validate_registry and reg_path.exists():
         with open(reg_path, encoding="utf-8") as f:
             registry = json.load(f)
-        reg_active_map = {
-            r["document_id"]: r
-            for r in registry
-            if r.get("active_status", True)
-        }
-        manifest_active_map = {
-            d["document_id"]: d
-            for d in manifest.get("active_documents", [])
-        }
+
+        active_reg_docs = [r for r in registry if r.get("active_status", True)]
+        reg_active_ids = [r["document_id"] for r in active_reg_docs]
+        if len(reg_active_ids) != len(set(reg_active_ids)):
+            raise ValueError("Duplicate active document identities in registry")
+        reg_active_map = {r["document_id"]: r for r in active_reg_docs}
+
+        manifest_active_docs = manifest.get("active_documents", [])
+        manifest_active_ids = [d["document_id"] for d in manifest_active_docs]
+        if len(manifest_active_ids) != len(set(manifest_active_ids)):
+            raise ValueError("Duplicate active document identities in index manifest")
+        manifest_active_map = {d["document_id"]: d for d in manifest_active_docs}
+
+        # Compare exact active document sets
+        if set(reg_active_map.keys()) != set(manifest_active_map.keys()):
+            missing_in_manifest = set(reg_active_map.keys()) - set(manifest_active_map.keys())
+            extra_in_manifest = set(manifest_active_map.keys()) - set(reg_active_map.keys())
+            raise ValueError(
+                f"Active document set mismatch between registry and manifest: "
+                f"missing={missing_in_manifest}, extra={extra_in_manifest}"
+            )
+
         for doc_id, reg_doc in reg_active_map.items():
-            if doc_id not in manifest_active_map:
-                raise ValueError(f"Document {doc_id} in registry is missing from index manifest")
             man_doc = manifest_active_map[doc_id]
-            if man_doc["source_hash"] != reg_doc["source_content_hash"]:
+            expected_version = reg_doc.get("active_version")
+            if expected_version is None:
+                raise ValueError(f"Document {doc_id} in registry has missing active_version")
+            man_version = man_doc.get("active_version") or man_doc.get("version")
+            if man_version != expected_version:
+                raise ValueError(
+                    f"Active version mismatch for {doc_id} in manifest: "
+                    f"manifest={man_version} vs registry={expected_version}"
+                )
+            if man_doc.get("source_hash") != reg_doc.get("source_content_hash"):
                 raise ValueError(
                     f"Source hash mismatch for {doc_id} in manifest: "
-                    f"manifest={man_doc['source_hash']} vs registry={reg_doc['source_content_hash']}"
+                    f"manifest={man_doc.get('source_hash')} vs registry={reg_doc.get('source_content_hash')}"
                 )
 
+        # Confirm all chunks correspond to active documents and active versions
+        chunk_doc_ids = set()
         for c in chunks:
             doc_id = c["document_id"]
-            if doc_id in reg_active_map:
-                reg_doc = reg_active_map[doc_id]
-                if c["version"] != reg_doc["active_version"]:
-                    raise ValueError(f"Chunk {c['chunk_id']} version {c['version']} != registry {reg_doc['active_version']}")
-                if c["source_hash"] != reg_doc["source_content_hash"]:
-                    raise ValueError(f"Chunk {c['chunk_id']} source_hash mismatch with registry")
+            chunk_doc_ids.add(doc_id)
+            if doc_id not in reg_active_map:
+                raise ValueError(
+                    f"Unexpected inactive or unregistered document {doc_id} found in chunk {c['chunk_id']}"
+                )
+            reg_doc = reg_active_map[doc_id]
+            if c["version"] != reg_doc["active_version"]:
+                raise ValueError(
+                    f"Chunk {c['chunk_id']} version {c['version']} != registry active version {reg_doc['active_version']}"
+                )
+            if c["source_hash"] != reg_doc["source_content_hash"]:
+                raise ValueError(
+                    f"Chunk {c['chunk_id']} source_hash mismatch with registry"
+                )
 
-    # 6. Confirm Qdrant payload metadata corresponds to chunk records
+        if chunk_doc_ids != set(reg_active_map.keys()):
+            missing_chunks_docs = set(reg_active_map.keys()) - chunk_doc_ids
+            raise ValueError(
+                f"Active documents in registry have no chunks in index: {missing_chunks_docs}"
+            )
+
+    # 6. Confirm Qdrant payload metadata corresponds faithfully to chunk records
     for p in q_points:
         cid = p.payload["chunk_id"]
         expected_chunk = chunk_map[cid]
-        for key in ("document_id", "section_number", "version", "title", "allowed_roles"):
-            if p.payload.get(key) != expected_chunk.get(key):
+        for key in ("document_id", "section_number", "version", "title", "allowed_roles", "source_hash"):
+            if key in expected_chunk and p.payload.get(key) != expected_chunk.get(key):
                 raise ValueError(f"Qdrant payload field mismatch for {cid} on {key}")
 
     return {
@@ -426,17 +465,38 @@ def safe_promote_indexes(
     if not staging_dir.exists():
         raise FileNotFoundError(f"Staging directory does not exist: {staging_dir}")
 
-    # 1. Verify staged indexes before promotion
+    # Situation D — A backup already exists before rebuilding
+    if backup_dir.exists():
+        if active_dir.exists():
+            raise RuntimeError(
+                f"Unresolved backup directory found at '{backup_dir}' while active index '{active_dir}' exists. "
+                "An interrupted build must be resolved before proceeding. "
+                "Do not automatically delete existing backups."
+            )
+        else:
+            # Active is missing but backup exists: restore only if structurally complete
+            try:
+                verify_index_identity(
+                    indexes_dir=backup_dir,
+                    collection_name=collection_name,
+                    validate_registry=False,
+                )
+                backup_dir.rename(active_dir)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Active index is missing and pre-existing backup at '{backup_dir}' "
+                    f"cannot be verified as structurally complete: {e}. Preserving backup and stopping."
+                ) from e
+
+    # Situation B — Staging is invalid: verify staging before touching active index
     verify_index_identity(
         indexes_dir=staging_dir,
         registry_path=registry_path,
         collection_name=collection_name,
+        validate_registry=True,
     )
 
-    # 2. Prepare backup
-    if backup_dir.exists():
-        shutil.rmtree(backup_dir)
-
+    # Situation A — Normal rebuild: move active index to temporary backup
     had_active = active_dir.exists()
     if had_active:
         active_dir.rename(backup_dir)
@@ -448,14 +508,41 @@ def safe_promote_indexes(
             indexes_dir=active_dir,
             registry_path=registry_path,
             collection_name=collection_name,
+            validate_registry=True,
         )
-        # Promotion succeeded: remove backup
+        # Promotion succeeded: delete temporary backup
         if had_active and backup_dir.exists():
             shutil.rmtree(backup_dir)
-    except Exception as e:
-        # Rollback
+    except Exception as promote_err:
+        # Situation C — Promotion fails: rollback to previous active index
+        rollback_failed = False
+        rollback_err_parts = []
+
         if active_dir.exists():
-            shutil.rmtree(active_dir)
+            try:
+                shutil.rmtree(active_dir)
+            except Exception as e:
+                rollback_failed = True
+                rollback_err_parts.append(f"Failed to remove incomplete active dir: {e}")
+
         if had_active and backup_dir.exists():
-            backup_dir.rename(active_dir)
-        raise RuntimeError(f"Index promotion failed and was rolled back to previous index: {e}") from e
+            try:
+                backup_dir.rename(active_dir)
+            except Exception as e:
+                rollback_failed = True
+                rollback_err_parts.append(f"Failed to restore backup to active: {e}")
+
+        if had_active and not active_dir.exists():
+            rollback_failed = True
+            rollback_err_parts.append("Active directory is missing after rollback attempt")
+
+        if rollback_failed:
+            err_details = "; ".join(rollback_err_parts)
+            raise RuntimeError(
+                f"Index promotion failed ({promote_err}) AND ROLLBACK FAILED ({err_details}). "
+                f"Backup preserved at '{backup_dir}'."
+            ) from promote_err
+
+        raise RuntimeError(
+            f"Index promotion failed and was rolled back to previous active index. Error: {promote_err}"
+        ) from promote_err

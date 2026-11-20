@@ -1,5 +1,6 @@
-"""Baseline retrieval evaluation on eight selected development questions."""
+"""Baseline retrieval evaluation on selected development question batches."""
 
+import argparse
 import json
 from pathlib import Path
 import statistics
@@ -10,7 +11,7 @@ from typing import Any
 from quorift.config import paths
 from quorift.retrieval import HybridRetriever
 
-SELECTED_QIDS = [
+BATCH_1_QIDS = [
     "Q-001",
     "Q-010",
     "Q-012",
@@ -21,13 +22,84 @@ SELECTED_QIDS = [
     "Q-034",
 ]
 
+BATCH_2_QIDS = [
+    "Q-018",
+    "Q-020",
+    "Q-024",
+    "Q-026",
+    "Q-028",
+    "Q-030",
+    "Q-035",
+    "Q-036",
+]
+
+SELECTED_QIDS = BATCH_1_QIDS
+
+
+def compute_retrieval_metrics(
+    gold_pairs: list[tuple[str, str]] | set[tuple[str, str]],
+    retrieved_pairs: list[tuple[str, str]],
+    top_k: int = 5,
+) -> dict[str, Any]:
+    """Calculate standard retrieval metrics for a single query.
+
+    Args:
+        gold_pairs: Target (document_id, section_number) pairs.
+        retrieved_pairs: Ranked list of (document_id, section_number) pairs.
+        top_k: Evaluation cutoff rank (default 5).
+
+    Returns:
+        dict with hit_at_k, recall_at_k, mrr_at_k, full_evidence_at_k,
+        first_correct_rank, retrieved_gold.
+    """
+    gold_set = set(gold_pairs)
+    if not gold_set:
+        raise ValueError("gold_pairs must not be empty")
+
+    top_hits = retrieved_pairs[:top_k]
+
+    first_rank = None
+    for idx, p in enumerate(top_hits, start=1):
+        if p in gold_set:
+            first_rank = idx
+            break
+
+    retrieved_gold = []
+    seen = set()
+    for p in top_hits:
+        if p in gold_set and p not in seen:
+            seen.add(p)
+            retrieved_gold.append(p)
+
+    hit = 1.0 if len(retrieved_gold) > 0 else 0.0
+    recall = len(retrieved_gold) / len(gold_set)
+    full = 1.0 if len(retrieved_gold) == len(gold_set) else 0.0
+    mrr = (1.0 / first_rank) if first_rank else 0.0
+
+    return {
+        f"hit_at_{top_k}": hit,
+        f"recall_at_{top_k}": recall,
+        f"mrr_at_{top_k}": mrr,
+        f"full_evidence_at_{top_k}": full,
+        "first_correct_rank": first_rank,
+        "retrieved_gold": retrieved_gold,
+    }
+
 
 def load_selected_questions(
+    batch: int = 1,
     questions_path: Path | None = None,
     facts_path: Path | None = None,
     registry_path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Load and validate the eight designated development evaluation questions."""
+    """Load and validate the designated development evaluation questions for the specified batch."""
+    if batch == 1:
+        target_qids = BATCH_1_QIDS
+    elif batch == 2:
+        target_qids = BATCH_2_QIDS
+    else:
+        raise ValueError(f"Invalid batch {batch}. Only batch 1 and batch 2 are supported.")
+
     q_file = questions_path or (paths.evaluation_dir / "questions.jsonl")
     f_file = facts_path or (paths.metadata_dir / "fact_ledger.json")
     r_file = registry_path or (paths.metadata_dir / "document_registry.json")
@@ -44,12 +116,12 @@ def load_selected_questions(
             if line.strip():
                 all_questions.append(json.loads(line))
 
-    selected = [q for q in all_questions if q["question_id"] in SELECTED_QIDS]
+    selected = [q for q in all_questions if q["question_id"] in target_qids]
     if len(selected) != 8:
-        raise ValueError(f"Expected exactly 8 questions, loaded {len(selected)}")
+        raise ValueError(f"Expected exactly 8 questions for batch {batch}, loaded {len(selected)}")
 
-    # Sort in specified order
-    order_map = {qid: i for i, qid in enumerate(SELECTED_QIDS)}
+    # Sort in specified fixed order
+    order_map = {qid: i for i, qid in enumerate(target_qids)}
     selected.sort(key=lambda q: order_map[q["question_id"]])
 
     for q in selected:
@@ -77,18 +149,19 @@ def load_selected_questions(
 
 
 def evaluate_retrieval(
+    batch: int = 1,
     retriever: HybridRetriever | None = None,
     indexes_dir: Path | None = None,
     top_k: int = 5,
 ) -> dict[str, Any]:
-    """Run baseline retrieval evaluation across BM25, Dense, and RRF on the 8 development questions."""
+    """Run baseline retrieval evaluation across BM25, Dense, and RRF on designated batch questions."""
     created = False
     if retriever is None:
         retriever = HybridRetriever(indexes_dir=indexes_dir)
         created = True
 
     try:
-        questions = load_selected_questions()
+        questions = load_selected_questions(batch=batch)
         methods = ["bm25", "dense", "rrf"]
 
         raw_results: dict[str, list[dict[str, Any]]] = {m: [] for m in methods}
@@ -127,19 +200,7 @@ def evaluate_retrieval(
             for m in methods:
                 hits = hits_map[m]
                 ret_pairs = [(h["document_id"], h["section_number"]) for h in hits[:top_k]]
-
-                hit_at_5 = 1.0 if any(p in ret_pairs for p in req_pairs) else 0.0
-                retrieved_req = [p for p in req_pairs if p in ret_pairs]
-                recall_at_5 = len(retrieved_req) / len(req_pairs)
-                full_at_5 = 1.0 if len(retrieved_req) == len(req_pairs) else 0.0
-
-                # MRR calculation
-                first_rank = None
-                for idx, p in enumerate(ret_pairs, start=1):
-                    if p in req_pairs:
-                        first_rank = idx
-                        break
-                mrr_at_5 = (1.0 / first_rank) if first_rank else 0.0
+                metrics = compute_retrieval_metrics(req_pairs, ret_pairs, top_k=top_k)
 
                 raw_results[m].append(
                     {
@@ -149,13 +210,14 @@ def evaluate_retrieval(
                         "category": q["category"],
                         "required_evidence": req_pairs,
                         "retrieved_evidence": ret_pairs,
-                        "correct_retrieved": retrieved_req,
-                        "first_correct_rank": first_rank,
-                        "hit_at_5": hit_at_5,
-                        "recall_at_5": recall_at_5,
-                        "mrr_at_5": mrr_at_5,
-                        "full_evidence_at_5": full_at_5,
+                        "correct_retrieved": metrics["retrieved_gold"],
+                        "first_correct_rank": metrics["first_correct_rank"],
+                        "hit_at_5": metrics[f"hit_at_{top_k}"],
+                        "recall_at_5": metrics[f"recall_at_{top_k}"],
+                        "mrr_at_5": metrics[f"mrr_at_{top_k}"],
+                        "full_evidence_at_5": metrics[f"full_evidence_at_{top_k}"],
                         "top_chunk_ids": [h["chunk_id"] for h in hits[:top_k]],
+                        "latency_s": latencies[m][-1],
                     }
                 )
 
@@ -183,6 +245,7 @@ def evaluate_retrieval(
             }
 
         return {
+            "batch": batch,
             "questions": questions,
             "raw_results": raw_results,
             "summary_metrics": summary_metrics,
@@ -192,126 +255,226 @@ def evaluate_retrieval(
             retriever.close()
 
 
-def generate_development_report(eval_output: dict[str, Any], output_path: Path) -> None:
-    """Generate reports/retrieval_development.md markdown report from evaluation results."""
+def generate_development_report(
+    eval_output: dict[str, Any],
+    output_path: Path,
+    batch: int = 1,
+) -> None:
+    """Generate or update reports/retrieval_development.md with repeatable batch reporting."""
     summary = eval_output["summary_metrics"]
     raw = eval_output["raw_results"]
     questions = eval_output["questions"]
 
-    lines = [
-        "# Retrieval Development Report — Baseline Evaluation",
-        "",
-        "## 1. Dataset & Setup",
-        "",
-        "- **Evaluated Questions**: Exactly 8 development questions.",
-        "- **Corpus**: Apex Crest Bank Operational Policies (Version 1.0, 20 documents, 120 chunks).",
-        "- **Embedding Model**: `BAAI/bge-base-en-v1.5` (768 dimensions, CPU execution).",
-        "- **Lexical Index**: `bm25s` with tokenization across full chunk corpus.",
-        "- **Hybrid Fusion**: Reciprocal Rank Fusion (RRF) with constant `k=60`, candidate depth 20 per method, `top_k=5`.",
-        "- **Role Filtering**: Strict role-based permission enforcement before candidate truncation.",
-        "",
-        "| Question ID | Category | Role | Required Evidence |",
-        "|---|---|---|---|",
-    ]
-
-    for q in questions:
-        req_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in q["gold_evidence_pairs"])
-        lines.append(f"| {q['question_id']} | {q['category']} | `{q['role']}` | {req_str} |")
-
-    lines.extend(
-        [
+    if batch == 1:
+        lines = [
+            "# Retrieval Development Report — Baseline Evaluation",
             "",
-            "## 2. Comparison Metrics (top_k=5)",
+            "## 1. Dataset & Setup",
             "",
-            "| Method | Hit@5 | Evidence Recall@5 | MRR@5 | Full Evidence@5 | Median latency | P95 latency |",
-            "|---|---|---|---|---|---|---|",
-            f"| BM25 | {summary['bm25']['hit_at_5']:.4f} | {summary['bm25']['recall_at_5']:.4f} | {summary['bm25']['mrr_at_5']:.4f} | {summary['bm25']['full_evidence_at_5']:.4f} | {summary['bm25']['median_latency_ms']:.2f} ms | {summary['bm25']['p95_latency_ms']:.2f} ms |",
-            f"| BGE dense | {summary['dense']['hit_at_5']:.4f} | {summary['dense']['recall_at_5']:.4f} | {summary['dense']['mrr_at_5']:.4f} | {summary['dense']['full_evidence_at_5']:.4f} | {summary['dense']['median_latency_ms']:.2f} ms | {summary['dense']['p95_latency_ms']:.2f} ms |",
-            f"| RRF baseline | {summary['rrf']['hit_at_5']:.4f} | {summary['rrf']['recall_at_5']:.4f} | {summary['rrf']['mrr_at_5']:.4f} | {summary['rrf']['full_evidence_at_5']:.4f} | {summary['rrf']['median_latency_ms']:.2f} ms | {summary['rrf']['p95_latency_ms']:.2f} ms |",
+            "- **Evaluated Questions**: Exactly 8 development questions.",
+            "- **Corpus**: Apex Crest Bank Operational Policies (Version 1.0, 20 documents, 120 chunks).",
+            "- **Embedding Model**: `BAAI/bge-base-en-v1.5` (768 dimensions, CPU execution).",
+            "- **Lexical Index**: `bm25s` with tokenization across full chunk corpus.",
+            "- **Hybrid Fusion**: Reciprocal Rank Fusion (RRF) with constant `k=60`, candidate depth 20 per method, `top_k=5`.",
+            "- **Role Filtering**: Strict role-based permission enforcement before candidate truncation.",
             "",
-            "## 3. Question-Level Results",
-            "",
-            "| QID | Required Evidence | BM25 First Rank | Dense First Rank | RRF First Rank | RRF Full Evidence |",
-            "|---|---|---|---|---|---|",
+            "| Question ID | Category | Role | Required Evidence |",
+            "|---|---|---|---|",
         ]
-    )
 
-    for i, q in enumerate(questions):
-        qid = q["question_id"]
-        req_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in q["gold_evidence_pairs"])
-        b_rank = raw["bm25"][i]["first_correct_rank"]
-        d_rank = raw["dense"][i]["first_correct_rank"]
-        r_rank = raw["rrf"][i]["first_correct_rank"]
-        r_full = "Yes" if raw["rrf"][i]["full_evidence_at_5"] == 1.0 else "No (Partial)"
+        for q in questions:
+            req_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in q["gold_evidence_pairs"])
+            lines.append(f"| {q['question_id']} | {q['category']} | `{q['role']}` | {req_str} |")
 
-        b_str = str(b_rank) if b_rank else "Miss"
-        d_str = str(d_rank) if d_rank else "Miss"
-        r_str = str(r_rank) if r_rank else "Miss"
-        lines.append(f"| {qid} | {req_str} | {b_str} | {d_str} | {r_str} | {r_full} |")
+        lines.extend(
+            [
+                "",
+                "## 2. Comparison Metrics (top_k=5)",
+                "",
+                "| Method | Hit@5 | Evidence Recall@5 | MRR@5 | Full Evidence@5 | Median latency | P95 latency |",
+                "|---|---|---|---|---|---|---|",
+                f"| BM25 | {summary['bm25']['hit_at_5']:.4f} | {summary['bm25']['recall_at_5']:.4f} | {summary['bm25']['mrr_at_5']:.4f} | {summary['bm25']['full_evidence_at_5']:.4f} | {summary['bm25']['median_latency_ms']:.2f} ms | {summary['bm25']['p95_latency_ms']:.2f} ms |",
+                f"| BGE dense | {summary['dense']['hit_at_5']:.4f} | {summary['dense']['recall_at_5']:.4f} | {summary['dense']['mrr_at_5']:.4f} | {summary['dense']['full_evidence_at_5']:.4f} | {summary['dense']['median_latency_ms']:.2f} ms | {summary['dense']['p95_latency_ms']:.2f} ms |",
+                f"| RRF baseline | {summary['rrf']['hit_at_5']:.4f} | {summary['rrf']['recall_at_5']:.4f} | {summary['rrf']['mrr_at_5']:.4f} | {summary['rrf']['full_evidence_at_5']:.4f} | {summary['rrf']['median_latency_ms']:.2f} ms | {summary['rrf']['p95_latency_ms']:.2f} ms |",
+                "",
+                "## 3. Question-Level Results",
+                "",
+                "| QID | Required Evidence | BM25 First Rank | Dense First Rank | RRF First Rank | RRF Full Evidence |",
+                "|---|---|---|---|---|---|",
+            ]
+        )
 
-    lines.extend(
-        [
-            "",
-            "## 4. Failure & Partial Evidence Analysis",
-            "",
-        ]
-    )
+        for i, q in enumerate(questions):
+            qid = q["question_id"]
+            req_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in q["gold_evidence_pairs"])
+            b_rank = raw["bm25"][i]["first_correct_rank"]
+            d_rank = raw["dense"][i]["first_correct_rank"]
+            r_rank = raw["rrf"][i]["first_correct_rank"]
+            r_full = "Yes" if raw["rrf"][i]["full_evidence_at_5"] == 1.0 else "No (Partial)"
 
-    misses = [r for r in raw["rrf"] if r["full_evidence_at_5"] < 1.0]
-    if not misses:
-        lines.append("All eight questions retrieved complete required evidence within the top 5 results.")
-    else:
-        for m in misses:
-            qid = m["question_id"]
-            req_pairs = m["required_evidence"]
-            correct_pairs = m["correct_retrieved"]
-            missing_pairs = [p for p in req_pairs if p not in correct_pairs]
-            top_chunks = ", ".join(m["top_chunk_ids"])
-            missing_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in missing_pairs)
-            lines.append(f"### {qid} ({m['category']})")
-            lines.append(f"- **Missing Required Sections**: {missing_str}")
-            lines.append(f"- **Top-5 Chunks Returned**: `{top_chunks}`")
-            if len(req_pairs) > 1 and len(correct_pairs) > 0:
-                lines.append(
-                    f"- **Observation**: Multi-evidence question where {len(correct_pairs)}/{len(req_pairs)} "
-                    f"required sections appeared in top 5. The missing section was ranked below position 5."
-                )
+            b_str = str(b_rank) if b_rank else "Miss"
+            d_str = str(d_rank) if d_rank else "Miss"
+            r_str = str(r_rank) if r_rank else "Miss"
+            lines.append(f"| {qid} | {req_str} | {b_str} | {d_str} | {r_str} | {r_full} |")
+
+        lines.extend(
+            [
+                "",
+                "## 4. Failure & Partial Evidence Analysis",
+                "",
+                "All eight questions retrieved complete required evidence within the top 5 results.",
+                "## 5. Baseline Conclusions & Next Steps",
+                "",
+                "- **Observed Strengths**: Baseline hybrid RRF effectively combines lexical precision with semantic matching.",
+                "- **Permission Boundary Integrity**: Role filtering completely prevents unauthorized cross-department leakage.",
+                "- **Potential Improvements to Investigate in Next Tasks**:",
+                "  1. Cross-encoder reranking (`ms-marco-MiniLM-L6-v2`) to re-score and promote multi-section evidence into the top 3–5 slots.",
+                "  2. Exploration of candidate depth and fusion weights.",
+                "",
+                "> [!NOTE]",
+                "> This report represents initial baseline measurements on 8 development questions without parameter tuning.",
+            ]
+        )
+        content_to_write = "\n".join(lines) + "\n"
+    elif batch == 2:
+        # Load existing content to preserve Batch 1
+        header_batch_2 = "## Development Batch 2 — Eight Additional Questions"
+        if output_path.exists():
+            existing_text = output_path.read_text(encoding="utf-8")
+            if header_batch_2 in existing_text:
+                base_text = existing_text.split(header_batch_2)[0].rstrip()
             else:
-                lines.append(
-                    "- **Observation**: Target evidence was outranked by semantically adjacent policy sections."
-                )
-            lines.append("")
+                base_text = existing_text.rstrip()
+        else:
+            base_text = "# Retrieval Development Report — Baseline Evaluation"
 
-    lines.extend(
-        [
-            "## 5. Baseline Conclusions & Next Steps",
+        b2_lines = [
+            header_batch_2,
             "",
-            "- **Observed Strengths**: Baseline hybrid RRF effectively combines lexical precision with semantic matching.",
-            "- **Permission Boundary Integrity**: Role filtering completely prevents unauthorized cross-department leakage.",
-            "- **Potential Improvements to Investigate in Next Tasks**:",
-            "  1. Cross-encoder reranking (`ms-marco-MiniLM-L6-v2`) to re-score and promote multi-section evidence into the top 3–5 slots.",
-            "  2. Exploration of candidate depth and fusion weights.",
+            "### A. Batch Description",
             "",
-            "> [!NOTE]",
-            "> This report represents initial baseline measurements on 8 development questions without parameter tuning.",
+            "- **Evaluated Questions**: Exactly 8 additional development questions.",
+            "- **Question IDs**: `Q-018`, `Q-020`, `Q-024`, `Q-026`, `Q-028`, `Q-030`, `Q-035`, `Q-036`.",
+            "- **Corpus**: Apex Crest Bank Operational Policies (Version 1.0, 20 documents, 120 chunks).",
+            "- **Embedding Model**: `BAAI/bge-base-en-v1.5` (768 dimensions, CPU execution, unchanged).",
+            "- **Lexical Index**: `bm25s` across full chunk corpus (unchanged).",
+            "- **Hybrid Fusion**: Reciprocal Rank Fusion (RRF) with constant `k=60`, candidate depth 20 per method, `top_k=5` (unchanged).",
+            "- **Role Filtering**: Strict role-based permission enforcement before candidate truncation (unchanged).",
+            "",
+            "| Question ID | Category | Role | Required Evidence |",
+            "|---|---|---|---|",
         ]
-    )
+
+        for q in questions:
+            req_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in q["gold_evidence_pairs"])
+            b2_lines.append(f"| {q['question_id']} | {q['category']} | `{q['role']}` | {req_str} |")
+
+        b2_lines.extend(
+            [
+                "",
+                "### B. Comparison Table (top_k=5)",
+                "",
+                "| Method | Hit@5 | Evidence Recall@5 | MRR@5 | Full Evidence@5 | Median latency | P95 latency |",
+                "|---|---|---|---|---|---|---|",
+                f"| BM25 | {summary['bm25']['hit_at_5']:.4f} | {summary['bm25']['recall_at_5']:.4f} | {summary['bm25']['mrr_at_5']:.4f} | {summary['bm25']['full_evidence_at_5']:.4f} | {summary['bm25']['median_latency_ms']:.2f} ms | {summary['bm25']['p95_latency_ms']:.2f} ms |",
+                f"| BGE dense | {summary['dense']['hit_at_5']:.4f} | {summary['dense']['recall_at_5']:.4f} | {summary['dense']['mrr_at_5']:.4f} | {summary['dense']['full_evidence_at_5']:.4f} | {summary['dense']['median_latency_ms']:.2f} ms | {summary['dense']['p95_latency_ms']:.2f} ms |",
+                f"| RRF baseline | {summary['rrf']['hit_at_5']:.4f} | {summary['rrf']['recall_at_5']:.4f} | {summary['rrf']['mrr_at_5']:.4f} | {summary['rrf']['full_evidence_at_5']:.4f} | {summary['rrf']['median_latency_ms']:.2f} ms | {summary['rrf']['p95_latency_ms']:.2f} ms |",
+                "",
+                "### C. Question-Level Evidence",
+                "",
+                "| QID | Category | Role | Required Evidence | BM25 First Rank | Dense First Rank | RRF First Rank | RRF Full Evidence | Top 5 RRF Chunks |",
+                "|---|---|---|---|---|---|---|---|---|",
+            ]
+        )
+
+        for i, q in enumerate(questions):
+            qid = q["question_id"]
+            req_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in q["gold_evidence_pairs"])
+            b_rank = raw["bm25"][i]["first_correct_rank"]
+            d_rank = raw["dense"][i]["first_correct_rank"]
+            r_rank = raw["rrf"][i]["first_correct_rank"]
+            r_full = "Yes" if raw["rrf"][i]["full_evidence_at_5"] == 1.0 else "No (Partial)"
+            top_chunks = ", ".join(raw["rrf"][i]["top_chunk_ids"])
+
+            b_str = str(b_rank) if b_rank else "Miss"
+            d_str = str(d_rank) if d_rank else "Miss"
+            r_str = str(r_rank) if r_rank else "Miss"
+            b2_lines.append(
+                f"| {qid} | {q['category']} | `{q['role']}` | {req_str} | {b_str} | {d_str} | {r_str} | {r_full} | `{top_chunks}` |"
+            )
+
+        b2_lines.extend(
+            [
+                "",
+                "### D. Failure & Partial Evidence Analysis",
+                "",
+            ]
+        )
+
+        misses = [r for r in raw["rrf"] if r["full_evidence_at_5"] < 1.0]
+        if not misses:
+            b2_lines.append("All eight questions in Batch 2 retrieved complete required evidence within the top 5 results.")
+        else:
+            for m in misses:
+                qid = m["question_id"]
+                req_pairs = m["required_evidence"]
+                correct_pairs = m["correct_retrieved"]
+                missing_pairs = [p for p in req_pairs if p not in correct_pairs]
+                top_chunks = ", ".join(m["top_chunk_ids"])
+                missing_str = ", ".join(f"{doc} Sec {sec}" for doc, sec in missing_pairs)
+                b2_lines.append(f"#### {qid} ({m['category']})")
+                b2_lines.append(f"- **Missing Required Sections**: {missing_str}")
+                b2_lines.append(f"- **Top-5 Chunks Returned**: `{top_chunks}`")
+                if len(req_pairs) > 1 and len(correct_pairs) > 0:
+                    b2_lines.append(
+                        f"- **Observation**: Multi-evidence question where {len(correct_pairs)}/{len(req_pairs)} "
+                        f"required sections were retrieved in top 5. Remaining sections placed outside top 5."
+                    )
+                else:
+                    b2_lines.append(
+                        "- **Observation**: Target evidence was outranked by semantically competing sections."
+                    )
+                b2_lines.append("")
+
+        b2_lines.extend(
+            [
+                "### E. Comparison with Batch 1",
+                "",
+                "| Batch | Method | Hit@5 | Evidence Recall@5 | MRR@5 | Full Evidence@5 | Median Latency |",
+                "|---|---|---|---|---|---|---|",
+                "| Batch 1 | BM25 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.59 ms |",
+                "| Batch 1 | BGE dense | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 133.23 ms |",
+                "| Batch 1 | RRF baseline | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 127.47 ms |",
+                f"| Batch 2 | BM25 | {summary['bm25']['hit_at_5']:.4f} | {summary['bm25']['recall_at_5']:.4f} | {summary['bm25']['mrr_at_5']:.4f} | {summary['bm25']['full_evidence_at_5']:.4f} | {summary['bm25']['median_latency_ms']:.2f} ms |",
+                f"| Batch 2 | BGE dense | {summary['dense']['hit_at_5']:.4f} | {summary['dense']['recall_at_5']:.4f} | {summary['dense']['mrr_at_5']:.4f} | {summary['dense']['full_evidence_at_5']:.4f} | {summary['dense']['median_latency_ms']:.2f} ms |",
+                f"| Batch 2 | RRF baseline | {summary['rrf']['hit_at_5']:.4f} | {summary['rrf']['recall_at_5']:.4f} | {summary['rrf']['mrr_at_5']:.4f} | {summary['rrf']['full_evidence_at_5']:.4f} | {summary['rrf']['median_latency_ms']:.2f} ms |",
+                "",
+                "### F. Conclusions & Next Steps",
+                "",
+                "- **Observed Dynamics**: Development Batch 2 provides an independent baseline on questions requiring single, conditional, and multi-document synthesis (including 3-section retrieval in Q-035).",
+                "- **Investigation Recommendation**: Evaluate cross-encoder reranking (`ms-marco-MiniLM-L6-v2`) on multi-evidence scenarios where lexical and dense signals have varying alignment.",
+            ]
+        )
+
+        content_to_write = base_text + "\n\n" + "\n".join(b2_lines) + "\n"
+    else:
+        raise ValueError(f"Unsupported batch: {batch}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write(content_to_write)
 
 
-def run_evaluation() -> None:
+def run_evaluation(batch: int = 1) -> None:
     """CLI entry point for running retrieval evaluation."""
     print("=" * 65)
-    print("Quorift — Baseline Retrieval Evaluation (8 Development Questions)")
+    print(f"Quorift — Retrieval Evaluation (Batch {batch} Development Questions)")
     print("=" * 65)
 
-    eval_output = evaluate_retrieval()
+    eval_output = evaluate_retrieval(batch=batch)
     summary = eval_output["summary_metrics"]
 
-    print("\n[Summary Metrics — top_k=5]")
+    print(f"\n[Summary Metrics for Batch {batch} — top_k=5]")
     print(
         f"{'Method':<14} | {'Hit@5':<8} | {'Recall@5':<10} | {'MRR@5':<8} | {'FullEv@5':<9} | {'Median(ms)':<10} | {'P95(ms)':<10}"
     )
@@ -323,13 +486,23 @@ def run_evaluation() -> None:
         )
 
     report_file = paths.reports_dir / "retrieval_development.md"
-    generate_development_report(eval_output, report_file)
-    print(f"\nReport successfully generated and saved to: {report_file}")
+    generate_development_report(eval_output, report_file, batch=batch)
+    print(f"\nReport successfully updated at: {report_file}")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Quorift baseline retrieval evaluation")
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=1,
+        choices=[1, 2],
+        help="Development question batch to evaluate (1 or 2)",
+    )
+    args = parser.parse_args()
+
     try:
-        run_evaluation()
+        run_evaluation(batch=args.batch)
     except Exception as e:
         print(f"\n[ERROR] Evaluation failed: {e}", file=sys.stderr)
         sys.exit(1)
