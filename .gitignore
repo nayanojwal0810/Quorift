@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging and builds
+build/
+dist/
+*.egg-info/
+
+# Local databases, vectors, indexes, and model weights
+*.sqlite
+*.sqlite3
+*.db
+data/bm25_index/
+data/qdrant_storage/
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Temporary outputs, logs, environment variables
+*.log
+.env
+.env.*
+!.env.example
+
+# Guidebook, internal development notes, and scratch files
+Quorift_Implementation_Guidebook*.pdf
+reference_ledger.md
+*.tmp
