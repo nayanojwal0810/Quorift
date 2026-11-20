@@ -126,18 +126,21 @@ def retrieval_test_fixture(tmp_path, mock_embedding_model, sample_test_corpus):
             "active_status": True,
             "active_version": "1.0",
             "source_content_hash": "hash_lnd_01",
+            "allowed_roles": ["lending", "admin"],
         },
         {
             "document_id": "CMP-01",
             "active_status": True,
             "active_version": "1.0",
             "source_content_hash": "hash_cmp_01",
+            "allowed_roles": ["compliance", "admin"],
         },
         {
             "document_id": "HR-01",
             "active_status": True,
             "active_version": "1.0",
             "source_content_hash": "hash_hr_01",
+            "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"],
         },
     ]
     with open(registry_path, "w", encoding="utf-8") as f:
@@ -198,9 +201,9 @@ def test_retriever_stale_manifest_rejected(tmp_path, mock_embedding_model, sampl
     registry_path = tmp_path / "document_registry.json"
 
     dummy_registry = [
-        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01"},
-        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01"},
-        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01"},
+        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01", "allowed_roles": ["lending", "admin"]},
+        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01", "allowed_roles": ["compliance", "admin"]},
+        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01", "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"]},
     ]
     with open(registry_path, "w", encoding="utf-8") as f:
         json.dump(dummy_registry, f)
@@ -234,9 +237,9 @@ def test_retriever_changed_source_hash_rejected(tmp_path, mock_embedding_model, 
 
     # Registry has an updated source hash
     dummy_registry = [
-        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "new_hash_lnd_01"},
-        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01"},
-        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01"},
+        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "new_hash_lnd_01", "allowed_roles": ["lending", "admin"]},
+        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01", "allowed_roles": ["compliance", "admin"]},
+        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01", "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"]},
     ]
     with open(registry_path, "w", encoding="utf-8") as f:
         json.dump(dummy_registry, f)
@@ -265,9 +268,9 @@ def test_retriever_incorrect_active_version_rejected(tmp_path, mock_embedding_mo
     registry_path = tmp_path / "document_registry.json"
 
     dummy_registry = [
-        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01"},
-        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01"},
-        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01"},
+        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01", "allowed_roles": ["lending", "admin"]},
+        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01", "allowed_roles": ["compliance", "admin"]},
+        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01", "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"]},
     ]
     with open(registry_path, "w", encoding="utf-8") as f:
         json.dump(dummy_registry, f)
@@ -302,9 +305,9 @@ def test_retriever_inactive_document_rejected(tmp_path, mock_embedding_model, sa
 
     # Registry marks CMP-01 as inactive
     dummy_registry = [
-        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01"},
-        {"document_id": "CMP-01", "active_status": False, "active_version": "1.0", "source_content_hash": "hash_cmp_01"},
-        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01"},
+        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01", "allowed_roles": ["lending", "admin"]},
+        {"document_id": "CMP-01", "active_status": False, "active_version": "1.0", "source_content_hash": "hash_cmp_01", "allowed_roles": ["compliance", "admin"]},
+        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01", "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"]},
     ]
     with open(registry_path, "w", encoding="utf-8") as f:
         json.dump(dummy_registry, f)
@@ -409,3 +412,148 @@ def test_convenience_retrieve_function(tmp_path, retrieval_test_fixture):
     )
     assert len(results) >= 1
     assert results[0]["document_id"] == "HR-01"
+
+
+def test_authorized_access_lending_lnd01(retrieval_test_fixture):
+    """Authorized lending user successfully retrieves permitted LND-01 policy chunks."""
+    results = retrieval_test_fixture.retrieve("personal loan approval authority limits", role="lending", top_k=5)
+    assert len(results) > 0
+    retrieved_docs = [r["document_id"] for r in results]
+    assert "LND-01" in retrieved_docs
+    for r in results:
+        assert "lending" in r["allowed_roles"]
+
+
+def test_unauthorized_access_general_hr04(tmp_path, mock_embedding_model):
+    """General user querying restricted HR-04 content receives 0 HR-04 chunks across dense, BM25, and RRF."""
+    indexes_dir = tmp_path / "indexes"
+    indexes_dir.mkdir(parents=True)
+    registry_path = tmp_path / "document_registry.json"
+
+    chunks = [
+        {
+            "chunk_id": "HR-04|1.0|2.0",
+            "document_id": "HR-04",
+            "title": "Executive Compensation Policy",
+            "department": "Human Resources",
+            "section_number": "2.0",
+            "section_heading": "Band 4 Salary Ranges",
+            "version": "1.0",
+            "effective_date": "2026-01-15",
+            "page_start": 1,
+            "page_end": 1,
+            "allowed_roles": ["hr", "admin"],
+            "classification": "Strictly Confidential",
+            "source_pdf": "data/documents/hr_04.pdf",
+            "source_hash": "hash_hr_04",
+            "text": "HR-04 | Executive Compensation\nSection 2.0: Band 4 Salary Ranges\n\nExecutive salaries are confidential.",
+        },
+        {
+            "chunk_id": "HR-01|1.0|2.0",
+            "document_id": "HR-01",
+            "title": "Leave Policy",
+            "department": "Human Resources",
+            "section_number": "2.0",
+            "section_heading": "Annual Leave",
+            "version": "1.0",
+            "effective_date": "2026-01-15",
+            "page_start": 1,
+            "page_end": 1,
+            "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"],
+            "classification": "General Internal",
+            "source_pdf": "data/documents/hr_01.pdf",
+            "source_hash": "hash_hr_01",
+            "text": "HR-01 | Leave Policy\nSection 2.0: Annual Leave\n\nAll employees receive 18 days annual leave.",
+        },
+    ]
+
+    dummy_registry = [
+        {"document_id": "HR-04", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_04", "allowed_roles": ["hr", "admin"]},
+        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01", "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"]},
+    ]
+    with open(registry_path, "w", encoding="utf-8") as f:
+        json.dump(dummy_registry, f)
+
+    save_chunks_jsonl(chunks, indexes_dir / "chunks.jsonl")
+    build_bm25_index(chunks, indexes_dir / "bm25")
+    raw_vectors = np.zeros((len(chunks), 768), dtype=np.float32)
+    q_client = build_qdrant_index(chunks, raw_vectors, indexes_dir / "qdrant", DEFAULT_COLLECTION_NAME)
+    q_client.close()
+    manifest = build_manifest(chunks, "mock-model", 768, DEFAULT_COLLECTION_NAME, str(indexes_dir / "bm25"))
+    save_manifest(manifest, indexes_dir / "index_manifest.json")
+
+    retriever = HybridRetriever(
+        indexes_dir=indexes_dir,
+        registry_path=registry_path,
+        model=mock_embedding_model,
+        collection_name=DEFAULT_COLLECTION_NAME,
+    )
+    try:
+        query = "What are the executive compensation brackets for Band 4?"
+        bm25_hits = retriever.bm25_search(query, role="general", candidate_k=5)
+        assert all(h["document_id"] != "HR-04" for h in bm25_hits)
+
+        dense_hits = retriever.dense_search(query, role="general", candidate_k=5)
+        assert all(h["document_id"] != "HR-04" for h in dense_hits)
+
+        rrf_hits = retriever.retrieve(query, role="general", top_k=5)
+        assert all(h["document_id"] != "HR-04" for h in rrf_hits)
+    finally:
+        retriever.close()
+
+
+def test_unauthorized_access_lending_cmp01(retrieval_test_fixture):
+    """Lending user querying KYC content receives 0 CMP-01 chunks across BM25, dense, and RRF."""
+    query = "What are the internal investigation response windows for AML alerts?"
+    bm25_hits = retrieval_test_fixture.bm25_search(query, role="lending", candidate_k=5)
+    assert all(h["document_id"] != "CMP-01" for h in bm25_hits)
+
+    dense_hits = retrieval_test_fixture.dense_search(query, role="lending", candidate_k=5)
+    assert all(h["document_id"] != "CMP-01" for h in dense_hits)
+
+    rrf_hits = retrieval_test_fixture.retrieve(query, role="lending", top_k=5)
+    assert all(h["document_id"] != "CMP-01" for h in rrf_hits)
+
+
+def test_registry_permission_mismatch_fails_initialization(tmp_path, mock_embedding_model, sample_test_corpus):
+    """Retriever initialization fails when index permissions diverge from registry."""
+    indexes_dir = tmp_path / "indexes"
+    indexes_dir.mkdir(parents=True)
+    registry_path = tmp_path / "document_registry.json"
+
+    dummy_registry = [
+        {"document_id": "LND-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_lnd_01", "allowed_roles": ["admin"]},
+        {"document_id": "CMP-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_cmp_01", "allowed_roles": ["compliance", "admin"]},
+        {"document_id": "HR-01", "active_status": True, "active_version": "1.0", "source_content_hash": "hash_hr_01", "allowed_roles": ["general", "lending", "finance", "compliance", "hr", "admin"]},
+    ]
+    with open(registry_path, "w", encoding="utf-8") as f:
+        json.dump(dummy_registry, f)
+
+    save_chunks_jsonl(sample_test_corpus, indexes_dir / "chunks.jsonl")
+    build_bm25_index(sample_test_corpus, indexes_dir / "bm25")
+    raw_vectors = np.zeros((len(sample_test_corpus), 768), dtype=np.float32)
+    q_client = build_qdrant_index(sample_test_corpus, raw_vectors, indexes_dir / "qdrant", DEFAULT_COLLECTION_NAME)
+    q_client.close()
+
+    manifest = build_manifest(sample_test_corpus, "mock-model", 768, DEFAULT_COLLECTION_NAME, str(indexes_dir / "bm25"))
+    save_manifest(manifest, indexes_dir / "index_manifest.json")
+
+    with pytest.raises(ValueError, match="Permission metadata mismatch for LND-01"):
+        HybridRetriever(
+            indexes_dir=indexes_dir,
+            registry_path=registry_path,
+            model=mock_embedding_model,
+        )
+
+
+def test_registry_authoritative_when_chunk_claims_unauthorized_role(retrieval_test_fixture):
+    """Registry permissions take precedence even if chunk claims an unauthorized role."""
+    tampered_chunk = {
+        "chunk_id": "LND-01|1.0|2.0",
+        "document_id": "LND-01",
+        "version": "1.0",
+        "source_hash": "hash_lnd_01",
+        "allowed_roles": ["general", "lending", "admin"],
+    }
+    assert not retrieval_test_fixture.is_candidate_valid(tampered_chunk, role="general")
+    assert retrieval_test_fixture.is_candidate_valid(tampered_chunk, role="lending")

@@ -430,6 +430,14 @@ def verify_index_identity(
                 raise ValueError(
                     f"Chunk {c['chunk_id']} source_hash mismatch with registry"
                 )
+            if "allowed_roles" in reg_doc:
+                chunk_roles = set(c.get("allowed_roles", []))
+                reg_roles = set(reg_doc.get("allowed_roles", []))
+                if chunk_roles != reg_roles:
+                    raise ValueError(
+                        f"Permission metadata mismatch for {doc_id}. "
+                        f"Rebuild indexes to match the trusted registry. (chunk={chunk_roles} vs registry={reg_roles})"
+                    )
 
         if chunk_doc_ids != set(reg_active_map.keys()):
             missing_chunks_docs = set(reg_active_map.keys()) - chunk_doc_ids

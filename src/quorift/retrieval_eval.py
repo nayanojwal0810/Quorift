@@ -33,6 +33,17 @@ BATCH_2_QIDS = [
     "Q-036",
 ]
 
+BATCH_3_QIDS = [
+    "Q-017",
+    "Q-019",
+    "Q-027",
+    "Q-029",
+    "Q-031",
+    "Q-032",
+    "Q-041",
+    "Q-043",
+]
+
 SELECTED_QIDS = BATCH_1_QIDS
 
 
@@ -97,8 +108,10 @@ def load_selected_questions(
         target_qids = BATCH_1_QIDS
     elif batch == 2:
         target_qids = BATCH_2_QIDS
+    elif batch == 3:
+        target_qids = BATCH_3_QIDS
     else:
-        raise ValueError(f"Invalid batch {batch}. Only batch 1 and batch 2 are supported.")
+        raise ValueError(f"Invalid batch {batch}. Only batch 1, 2, and 3 are supported.")
 
     q_file = questions_path or (paths.evaluation_dir / "questions.jsonl")
     f_file = facts_path or (paths.metadata_dir / "fact_ledger.json")
@@ -128,7 +141,6 @@ def load_selected_questions(
         qid = q["question_id"]
         assert q["split"] == "development", f"{qid} must be in development split"
         assert q["corpus_state"] == "v1_active", f"{qid} corpus_state must be v1_active"
-        assert q["expected_behavior"] == "answer", f"{qid} expected_behavior must be answer"
 
         # Resolve exact (document_id, section_number) gold evidence pairs from facts
         gold_pairs = set()
@@ -138,12 +150,21 @@ def load_selected_questions(
 
         assert len(gold_pairs) > 0, f"{qid} has no gold evidence pairs"
         q["gold_evidence_pairs"] = sorted(list(gold_pairs))
+        q["restricted_docs"] = sorted(list(set(doc for doc, _ in gold_pairs)))
 
-        # Check role permission
         role = q["role"]
-        for doc_id, _ in gold_pairs:
-            reg_entry = registry[doc_id]
-            assert role in reg_entry["allowed_roles"], f"{qid}: Role {role} cannot access {doc_id}"
+        if q["expected_behavior"] == "answer":
+            q["is_denial"] = False
+            for doc_id, _ in gold_pairs:
+                reg_entry = registry[doc_id]
+                assert role in reg_entry["allowed_roles"], f"{qid}: Role {role} cannot access {doc_id}"
+        elif q["expected_behavior"] == "deny_unauthorized":
+            q["is_denial"] = True
+            for doc_id in q["restricted_docs"]:
+                reg_entry = registry[doc_id]
+                assert role not in reg_entry["allowed_roles"], f"{qid}: Role {role} is unexpectedly authorized for {doc_id}"
+        else:
+            raise ValueError(f"{qid} has unexpected expected_behavior: {q['expected_behavior']}")
 
     return selected
 
@@ -165,13 +186,20 @@ def evaluate_retrieval(
         methods = ["bm25", "dense", "rrf"]
 
         raw_results: dict[str, list[dict[str, Any]]] = {m: [] for m in methods}
+        denial_results: dict[str, list[dict[str, Any]]] = {m: [] for m in methods}
         latencies: dict[str, list[float]] = {m: [] for m in methods}
+
+        registry_path = paths.metadata_dir / "document_registry.json"
+        with open(registry_path, encoding="utf-8") as f:
+            registry = {reg["document_id"]: reg for reg in json.load(f)}
 
         for q in questions:
             qid = q["question_id"]
             q_text = q["question"]
             role = q["role"]
+            is_denial = q.get("is_denial", False)
             req_pairs = q["gold_evidence_pairs"]
+            restricted_docs = set(q.get("restricted_docs", []))
 
             # 1. Evaluate BM25
             t0 = time.perf_counter()
@@ -200,26 +228,44 @@ def evaluate_retrieval(
             for m in methods:
                 hits = hits_map[m]
                 ret_pairs = [(h["document_id"], h["section_number"]) for h in hits[:top_k]]
-                metrics = compute_retrieval_metrics(req_pairs, ret_pairs, top_k=top_k)
 
-                raw_results[m].append(
-                    {
-                        "question_id": qid,
-                        "question": q_text,
-                        "role": role,
-                        "category": q["category"],
-                        "required_evidence": req_pairs,
-                        "retrieved_evidence": ret_pairs,
-                        "correct_retrieved": metrics["retrieved_gold"],
-                        "first_correct_rank": metrics["first_correct_rank"],
-                        "hit_at_5": metrics[f"hit_at_{top_k}"],
-                        "recall_at_5": metrics[f"recall_at_{top_k}"],
-                        "mrr_at_5": metrics[f"mrr_at_{top_k}"],
-                        "full_evidence_at_5": metrics[f"full_evidence_at_{top_k}"],
-                        "top_chunk_ids": [h["chunk_id"] for h in hits[:top_k]],
-                        "latency_s": latencies[m][-1],
-                    }
-                )
+                if not is_denial:
+                    metrics = compute_retrieval_metrics(req_pairs, ret_pairs, top_k=top_k)
+                    raw_results[m].append(
+                        {
+                            "question_id": qid,
+                            "question": q_text,
+                            "role": role,
+                            "category": q["category"],
+                            "required_evidence": req_pairs,
+                            "retrieved_evidence": ret_pairs,
+                            "correct_retrieved": metrics["retrieved_gold"],
+                            "first_correct_rank": metrics["first_correct_rank"],
+                            "hit_at_5": metrics[f"hit_at_{top_k}"],
+                            "recall_at_5": metrics[f"recall_at_{top_k}"],
+                            "mrr_at_5": metrics[f"mrr_at_{top_k}"],
+                            "full_evidence_at_5": metrics[f"full_evidence_at_{top_k}"],
+                            "top_chunk_ids": [h["chunk_id"] for h in hits[:top_k]],
+                            "latency_s": latencies[m][-1],
+                        }
+                    )
+                else:
+                    restricted_hits = [h for h in hits[:top_k] if h["document_id"] in restricted_docs]
+                    perm_violations = [h for h in hits[:top_k] if role not in registry[h["document_id"]]["allowed_roles"]]
+                    denial_results[m].append(
+                        {
+                            "question_id": qid,
+                            "question": q_text,
+                            "role": role,
+                            "category": q["category"],
+                            "restricted_docs": sorted(list(restricted_docs)),
+                            "restricted_chunks_returned": len(restricted_hits),
+                            "permission_violations": len(perm_violations),
+                            "passed": (len(restricted_hits) == 0 and len(perm_violations) == 0),
+                            "top_chunk_ids": [h["chunk_id"] for h in hits[:top_k]],
+                            "latency_s": latencies[m][-1],
+                        }
+                    )
 
         summary_metrics = {}
         for m in methods:
@@ -236,18 +282,19 @@ def evaluate_retrieval(
                 return s[f] + (s[c] - s[f]) * (k - f)
 
             summary_metrics[m] = {
-                "hit_at_5": statistics.mean([r["hit_at_5"] for r in m_res]),
-                "recall_at_5": statistics.mean([r["recall_at_5"] for r in m_res]),
-                "mrr_at_5": statistics.mean([r["mrr_at_5"] for r in m_res]),
-                "full_evidence_at_5": statistics.mean([r["full_evidence_at_5"] for r in m_res]),
-                "median_latency_ms": statistics.median(m_lats) * 1000,
-                "p95_latency_ms": percentile(m_lats, 0.95) * 1000,
+                "hit_at_5": statistics.mean([r["hit_at_5"] for r in m_res]) if m_res else 0.0,
+                "recall_at_5": statistics.mean([r["recall_at_5"] for r in m_res]) if m_res else 0.0,
+                "mrr_at_5": statistics.mean([r["mrr_at_5"] for r in m_res]) if m_res else 0.0,
+                "full_evidence_at_5": statistics.mean([r["full_evidence_at_5"] for r in m_res]) if m_res else 0.0,
+                "median_latency_ms": statistics.median(m_lats) * 1000 if m_lats else 0.0,
+                "p95_latency_ms": percentile(m_lats, 0.95) * 1000 if m_lats else 0.0,
             }
 
         return {
             "batch": batch,
             "questions": questions,
             "raw_results": raw_results,
+            "denial_results": denial_results,
             "summary_metrics": summary_metrics,
         }
     finally:
@@ -457,6 +504,9 @@ def generate_development_report(
         )
 
         content_to_write = base_text + "\n\n" + "\n".join(b2_lines) + "\n"
+    elif batch == 3:
+        # Batch 3 results are internal to chat evaluation and must not be written to reports/retrieval_development.md
+        return
     else:
         raise ValueError(f"Unsupported batch: {batch}")
 
@@ -473,8 +523,10 @@ def run_evaluation(batch: int = 1) -> None:
 
     eval_output = evaluate_retrieval(batch=batch)
     summary = eval_output["summary_metrics"]
+    answerable_count = len(eval_output["raw_results"]["bm25"])
+    denial_count = len(eval_output.get("denial_results", {}).get("bm25", []))
 
-    print(f"\n[Summary Metrics for Batch {batch} — top_k=5]")
+    print(f"\n[Summary Metrics for Batch {batch} ({answerable_count} Answerable Questions) — top_k=5]")
     print(
         f"{'Method':<14} | {'Hit@5':<8} | {'Recall@5':<10} | {'MRR@5':<8} | {'FullEv@5':<9} | {'Median(ms)':<10} | {'P95(ms)':<10}"
     )
@@ -485,9 +537,27 @@ def run_evaluation(batch: int = 1) -> None:
             f"{m:<14} | {s['hit_at_5']:<8.4f} | {s['recall_at_5']:<10.4f} | {s['mrr_at_5']:<8.4f} | {s['full_evidence_at_5']:<9.4f} | {s['median_latency_ms']:<10.2f} | {s['p95_latency_ms']:<10.2f}"
         )
 
-    report_file = paths.reports_dir / "retrieval_development.md"
-    generate_development_report(eval_output, report_file, batch=batch)
-    print(f"\nReport successfully updated at: {report_file}")
+    if denial_count > 0:
+        print(f"\n[Unauthorized-Access Denial Evaluation ({denial_count} Questions)]")
+        print(
+            f"{'Method':<14} | {'Denial Cases':<13} | {'Restricted Chunks':<18} | {'Perm Violations':<16} | {'Status':<10}"
+        )
+        print("-" * 80)
+        for m in ["bm25", "dense", "rrf"]:
+            d_list = eval_output["denial_results"][m]
+            restr_returned = sum(d["restricted_chunks_returned"] for d in d_list)
+            violations = sum(d["permission_violations"] for d in d_list)
+            status = "PASSED (0 leaks)" if restr_returned == 0 and violations == 0 else "FAILED"
+            print(
+                f"{m:<14} | {len(d_list):<13} | {restr_returned:<18} | {violations:<16} | {status:<10}"
+            )
+
+    if batch in (1, 2):
+        report_file = paths.reports_dir / "retrieval_development.md"
+        generate_development_report(eval_output, report_file, batch=batch)
+        print(f"\nReport successfully updated at: {report_file}")
+    else:
+        print(f"\n[INFO] Batch {batch} results are reported directly (reports/retrieval_development.md preserved unchanged).")
 
 
 def main() -> None:
@@ -496,8 +566,8 @@ def main() -> None:
         "--batch",
         type=int,
         default=1,
-        choices=[1, 2],
-        help="Development question batch to evaluate (1 or 2)",
+        choices=[1, 2, 3],
+        help="Development question batch to evaluate (1, 2, or 3)",
     )
     args = parser.parse_args()
 

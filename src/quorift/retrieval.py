@@ -97,17 +97,24 @@ class HybridRetriever:
             raise
 
     def is_candidate_valid(self, chunk_data: dict[str, Any] | None, role: str) -> bool:
-        """Verify chunk belongs to active document, matches active version & hash, and role is allowed."""
+        """Verify chunk belongs to active document, matches active version & hash, and role is allowed by registry."""
         if not chunk_data:
             return False
         doc_id = chunk_data.get("document_id")
         if doc_id not in self.active_registry:
             return False
         active_doc = self.active_registry[doc_id]
+        if not active_doc.get("active_status", True):
+            return False
         if chunk_data.get("version") != active_doc.get("active_version"):
             return False
         if chunk_data.get("source_hash") != active_doc.get("source_content_hash"):
             return False
+        # Authoritative check against trusted registry
+        allowed_roles = active_doc.get("allowed_roles")
+        if allowed_roles is not None and role not in allowed_roles:
+            return False
+        # Consistency safeguard: chunk metadata must also contain the role
         if role not in chunk_data.get("allowed_roles", []):
             return False
         return True

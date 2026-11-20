@@ -5,7 +5,10 @@ import pytest
 from quorift.retrieval_eval import (
     BATCH_1_QIDS,
     BATCH_2_QIDS,
+    BATCH_3_QIDS,
     compute_retrieval_metrics,
+    evaluate_retrieval,
+    generate_development_report,
     load_selected_questions,
 )
 
@@ -44,10 +47,37 @@ def test_selected_questions_validation_batch_2():
             assert isinstance(sec_num, str) and "." in sec_num
 
 
+def test_selected_questions_validation_batch_3():
+    """Verify that load_selected_questions loads exactly Batch 3 questions (6 answerable, 2 denial)."""
+    questions = load_selected_questions(batch=3)
+    assert len(questions) == 8
+    qids = [q["question_id"] for q in questions]
+    assert qids == BATCH_3_QIDS
+
+    answerable = [q for q in questions if q["expected_behavior"] == "answer"]
+    denials = [q for q in questions if q["expected_behavior"] == "deny_unauthorized"]
+
+    assert len(answerable) == 6
+    assert len(denials) == 2
+    assert [q["question_id"] for q in denials] == ["Q-041", "Q-043"]
+
+    for q in questions:
+        assert q["split"] == "development"
+        assert q["corpus_state"] == "v1_active"
+        assert len(q["gold_evidence_pairs"]) >= 1
+
+    for q in answerable:
+        assert q["is_denial"] is False
+
+    for q in denials:
+        assert q["is_denial"] is True
+        assert len(q["restricted_docs"]) >= 1
+
+
 def test_selected_questions_invalid_batch():
     """Verify that an invalid batch parameter raises a clear ValueError."""
     with pytest.raises(ValueError, match="Invalid batch"):
-        load_selected_questions(batch=3)
+        load_selected_questions(batch=4)
 
 
 # 1. Single-evidence hit
@@ -190,3 +220,49 @@ def test_metric_duplicate_evidence_does_not_increase_recall():
     assert m["recall_at_5"] == 0.5  # Exactly 1 of 2 unique required, duplicate did not inflate
     assert m["full_evidence_at_5"] == 0.0
     assert len(m["retrieved_gold"]) == 1
+
+
+# 9. Batch 3 evaluation metrics and denial integrity
+def test_batch_3_evaluation_metrics_and_denial_results():
+    """Verify that Batch 3 evaluates 6 answerable questions and 2 denial cases with 0 leaks."""
+    eval_output = evaluate_retrieval(batch=3)
+
+    assert eval_output["batch"] == 3
+    assert len(eval_output["questions"]) == 8
+    assert len(eval_output["raw_results"]["bm25"]) == 6
+    assert len(eval_output["raw_results"]["dense"]) == 6
+    assert len(eval_output["raw_results"]["rrf"]) == 6
+
+    assert len(eval_output["denial_results"]["bm25"]) == 2
+    assert len(eval_output["denial_results"]["dense"]) == 2
+    assert len(eval_output["denial_results"]["rrf"]) == 2
+
+    for m in ["bm25", "dense", "rrf"]:
+        summary = eval_output["summary_metrics"][m]
+        assert "hit_at_5" in summary
+        assert "recall_at_5" in summary
+        assert "mrr_at_5" in summary
+        assert "full_evidence_at_5" in summary
+
+        for denial in eval_output["denial_results"][m]:
+            assert denial["restricted_chunks_returned"] == 0
+            assert denial["permission_violations"] == 0
+            assert denial["passed"] is True
+
+
+# 10. Batch 3 must not modify reports/retrieval_development.md
+def test_batch_3_does_not_modify_development_report(tmp_path):
+    """Calling generate_development_report with batch=3 must leave reports untouched."""
+    dummy_report = tmp_path / "retrieval_development.md"
+    dummy_report.write_text("# Existing Report\n", encoding="utf-8")
+
+    dummy_eval_output = {
+        "batch": 3,
+        "questions": [],
+        "raw_results": {"bm25": [], "dense": [], "rrf": []},
+        "denial_results": {"bm25": [], "dense": [], "rrf": []},
+        "summary_metrics": {},
+    }
+
+    generate_development_report(dummy_eval_output, dummy_report, batch=3)
+    assert dummy_report.read_text(encoding="utf-8") == "# Existing Report\n"

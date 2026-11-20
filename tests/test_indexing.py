@@ -309,6 +309,7 @@ def test_safe_promote_indexes_success(sample_chunks, sample_embeddings, tmp_path
             "active_status": True,
             "active_version": c["version"],
             "source_content_hash": c["source_hash"],
+            "allowed_roles": c.get("allowed_roles", []),
         }
         for c in sample_chunks
     ]
@@ -420,6 +421,7 @@ def test_safe_promote_indexes_failed_promotion_restores_active(
             "active_status": True,
             "active_version": c["version"],
             "source_content_hash": c["source_hash"],
+            "allowed_roles": c.get("allowed_roles", []),
         }
         for c in sample_chunks
     ]
@@ -489,6 +491,7 @@ def test_safe_promote_indexes_failed_rollback_preserves_backup_and_reports_error
             "active_status": True,
             "active_version": c["version"],
             "source_content_hash": c["source_hash"],
+            "allowed_roles": c.get("allowed_roles", []),
         }
         for c in sample_chunks
     ]
@@ -579,6 +582,7 @@ def test_safe_promote_indexes_missing_active_recovers_backup(
             "active_status": True,
             "active_version": c["version"],
             "source_content_hash": c["source_hash"],
+            "allowed_roles": c.get("allowed_roles", []),
         }
         for c in sample_chunks
     ]
@@ -634,3 +638,46 @@ def test_smoke_checks_fail_on_missing_evidence(sample_chunks, sample_embeddings,
 
     with pytest.raises(ValueError, match="Smoke check failed"):
         run_smoke_checks(idx_dir, mock_model)
+
+
+# 16. Stale or mismatched permission metadata raises ValueError
+def test_verify_index_identity_permission_mismatch(sample_chunks, sample_embeddings, tmp_path):
+    """Indexes whose chunk permissions diverge from the trusted registry must fail verification."""
+    idx_dir = tmp_path / "idx_perm_mismatch"
+    idx_dir.mkdir()
+    q_dir = idx_dir / "qdrant"
+    b_dir = idx_dir / "bm25"
+    chunks_path = idx_dir / "chunks.jsonl"
+    manifest_path = idx_dir / "index_manifest.json"
+    reg_file = tmp_path / "registry.json"
+
+    # Registry only allows ['admin'] for LND-01
+    reg_data = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+            "allowed_roles": ["admin"] if c["document_id"] == "LND-01" else c.get("allowed_roles", []),
+        }
+        for c in sample_chunks
+    ]
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(reg_data, f)
+
+    # Chunks still have ['lending', 'admin'] for LND-01
+    save_chunks_jsonl(sample_chunks, chunks_path)
+    manifest = build_manifest(sample_chunks, "test-model", 8, "quorift_chunks", str(b_dir))
+    save_manifest(manifest, manifest_path)
+    q_client = build_qdrant_index(sample_chunks, sample_embeddings, q_dir, "quorift_chunks")
+    q_client.close()
+    build_bm25_index(sample_chunks, b_dir)
+
+    with pytest.raises(ValueError, match="Permission metadata mismatch for LND-01"):
+        verify_index_identity(
+            idx_dir,
+            collection_name="quorift_chunks",
+            validate_registry=True,
+            registry_path=reg_file,
+        )
