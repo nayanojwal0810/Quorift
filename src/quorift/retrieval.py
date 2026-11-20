@@ -98,10 +98,12 @@ class HybridRetriever:
 
     def is_candidate_valid(self, chunk_data: dict[str, Any] | None, role: str) -> bool:
         """Verify chunk belongs to active document, matches active version & hash, and role is allowed by registry."""
-        if not chunk_data:
+        if not chunk_data or not isinstance(chunk_data, dict):
+            return False
+        if role not in VALID_ROLES:
             return False
         doc_id = chunk_data.get("document_id")
-        if doc_id not in self.active_registry:
+        if not doc_id or doc_id not in self.active_registry:
             return False
         active_doc = self.active_registry[doc_id]
         if not active_doc.get("active_status", True):
@@ -110,12 +112,22 @@ class HybridRetriever:
             return False
         if chunk_data.get("source_hash") != active_doc.get("source_content_hash"):
             return False
-        # Authoritative check against trusted registry
-        allowed_roles = active_doc.get("allowed_roles")
-        if allowed_roles is not None and role not in allowed_roles:
+
+        # Authoritative check against trusted registry - fail closed
+        trusted_roles = active_doc.get("allowed_roles")
+        if not trusted_roles or not isinstance(trusted_roles, list):
             return False
+        trusted_roles_set = set(trusted_roles)
+        if len(trusted_roles) != len(trusted_roles_set) or not trusted_roles_set.issubset(VALID_ROLES):
+            return False
+        if role not in trusted_roles_set:
+            return False
+
         # Consistency safeguard: chunk metadata must also contain the role
-        if role not in chunk_data.get("allowed_roles", []):
+        chunk_roles = chunk_data.get("allowed_roles")
+        if not chunk_roles or not isinstance(chunk_roles, list):
+            return False
+        if role not in set(chunk_roles):
             return False
         return True
 

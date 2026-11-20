@@ -22,6 +22,7 @@ BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
 DEFAULT_COLLECTION_NAME = "banking_policies"
 VECTOR_DIMENSION = 768
+VALID_ROLES = {"admin", "compliance", "finance", "general", "hr", "lending"}
 
 
 def chunk_id_to_uuid(chunk_id: str) -> str:
@@ -412,6 +413,18 @@ def verify_index_identity(
                     f"manifest={man_doc.get('source_hash')} vs registry={reg_doc.get('source_content_hash')}"
                 )
 
+            # Authoritative registry permission check - fail closed
+            reg_roles = reg_doc.get("allowed_roles")
+            if reg_roles is None:
+                raise ValueError(f"Document {doc_id} in registry is missing allowed_roles list")
+            if not isinstance(reg_roles, list) or len(reg_roles) == 0:
+                raise ValueError(f"Document {doc_id} in registry must have a nonempty allowed_roles list")
+            if len(reg_roles) != len(set(reg_roles)):
+                raise ValueError(f"Document {doc_id} in registry contains duplicate roles in allowed_roles: {reg_roles}")
+            invalid_roles = set(reg_roles) - VALID_ROLES
+            if invalid_roles:
+                raise ValueError(f"Document {doc_id} in registry contains invalid roles: {invalid_roles}")
+
         # Confirm all chunks correspond to active documents and active versions
         chunk_doc_ids = set()
         for c in chunks:
@@ -430,14 +443,15 @@ def verify_index_identity(
                 raise ValueError(
                     f"Chunk {c['chunk_id']} source_hash mismatch with registry"
                 )
-            if "allowed_roles" in reg_doc:
-                chunk_roles = set(c.get("allowed_roles", []))
-                reg_roles = set(reg_doc.get("allowed_roles", []))
-                if chunk_roles != reg_roles:
-                    raise ValueError(
-                        f"Permission metadata mismatch for {doc_id}. "
-                        f"Rebuild indexes to match the trusted registry. (chunk={chunk_roles} vs registry={reg_roles})"
-                    )
+            if "allowed_roles" not in c or not isinstance(c["allowed_roles"], list):
+                raise ValueError(f"Chunk {c['chunk_id']} is missing allowed_roles list")
+            chunk_roles = set(c["allowed_roles"])
+            reg_roles_set = set(reg_doc["allowed_roles"])
+            if chunk_roles != reg_roles_set:
+                raise ValueError(
+                    f"Permission metadata mismatch for {doc_id}. "
+                    f"Rebuild indexes to match the trusted registry. (chunk={chunk_roles} vs registry={reg_roles_set})"
+                )
 
         if chunk_doc_ids != set(reg_active_map.keys()):
             missing_chunks_docs = set(reg_active_map.keys()) - chunk_doc_ids

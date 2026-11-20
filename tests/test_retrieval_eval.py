@@ -1,5 +1,6 @@
 """Tests for baseline retrieval evaluation logic, metrics calculation, and gold evidence matching."""
 
+from typing import Any
 import pytest
 
 from quorift.retrieval_eval import (
@@ -222,10 +223,62 @@ def test_metric_duplicate_evidence_does_not_increase_recall():
     assert len(m["retrieved_gold"]) == 1
 
 
-# 9. Batch 3 evaluation metrics and denial integrity
+# 9. Batch 3 evaluation metrics and denial integrity with deterministic FakeRetriever
+class FakeRetriever:
+    """Deterministic fake retriever for fast, isolated evaluation testing without real models."""
+
+    def __init__(self, should_leak: bool = False):
+        self.should_leak = should_leak
+
+    def _hits_for(self, query: str, role: str) -> list[dict[str, Any]]:
+        # Match answerable questions based on keywords
+        if "gift" in query:
+            return [{"chunk_id": "GEN-01|1.0|2.0", "document_id": "GEN-01", "section_number": "2.0", "score": 1.0, "rank": 1}]
+        if "title deed" in query or "payoff" in query:
+            return [{"chunk_id": "LND-05|1.0|5.0", "document_id": "LND-05", "section_number": "5.0", "score": 1.0, "rank": 1}]
+        if "salary account" in query or "pay slips" in query or "pay slip" in query:
+            return [{"chunk_id": "LND-04|1.0|5.0", "document_id": "LND-04", "section_number": "5.0", "score": 1.0, "rank": 1}]
+        if "budget variance" in query:
+            return [{"chunk_id": "FIN-02|1.0|6.0", "document_id": "FIN-02", "section_number": "6.0", "score": 1.0, "rank": 1}]
+        if "vacation" in query or "probation" in query:
+            return [{"chunk_id": "HR-01|1.0|3.0", "document_id": "HR-01", "section_number": "3.0", "score": 1.0, "rank": 1}]
+        if "maintenance" in query or "incident" in query:
+            return [{"chunk_id": "GEN-03|1.0|5.0", "document_id": "GEN-03", "section_number": "5.0", "score": 1.0, "rank": 1}]
+
+        # Denial cases:
+        # Q-041: executive compensation -> restricted doc HR-04 (permitted: hr, admin)
+        if "compensation" in query or "Band 4" in query:
+            if self.should_leak:
+                return [{"chunk_id": "HR-04|1.0|2.0", "document_id": "HR-04", "section_number": "2.0", "score": 1.0, "rank": 1}]
+            else:
+                return [{"chunk_id": "GEN-01|1.0|1.0", "document_id": "GEN-01", "section_number": "1.0", "score": 0.5, "rank": 1}]
+
+        # Q-043: AML alert investigation -> restricted doc CMP-02 (permitted: compliance, admin)
+        if "AML" in query or "investigation" in query:
+            if self.should_leak:
+                return [{"chunk_id": "CMP-02|1.0|3.0", "document_id": "CMP-02", "section_number": "3.0", "score": 1.0, "rank": 1}]
+            else:
+                return [{"chunk_id": "GEN-03|1.0|1.0", "document_id": "GEN-03", "section_number": "1.0", "score": 0.5, "rank": 1}]
+
+        return []
+
+    def bm25_search(self, question: str, role: str, candidate_k: int = 5) -> list[dict[str, Any]]:
+        return self._hits_for(question, role)
+
+    def dense_search(self, question: str, role: str, candidate_k: int = 5) -> list[dict[str, Any]]:
+        return self._hits_for(question, role)
+
+    def retrieve(self, question: str, role: str, top_k: int = 5) -> list[dict[str, Any]]:
+        return self._hits_for(question, role)
+
+    def close(self):
+        pass
+
+
 def test_batch_3_evaluation_metrics_and_denial_results():
-    """Verify that Batch 3 evaluates 6 answerable questions and 2 denial cases with 0 leaks."""
-    eval_output = evaluate_retrieval(batch=3)
+    """Verify that Batch 3 evaluates 6 answerable questions and 2 denial cases with 0 leaks using FakeRetriever."""
+    fake_retriever = FakeRetriever(should_leak=False)
+    eval_output = evaluate_retrieval(batch=3, retriever=fake_retriever)
 
     assert eval_output["batch"] == 3
     assert len(eval_output["questions"]) == 8
@@ -237,17 +290,39 @@ def test_batch_3_evaluation_metrics_and_denial_results():
     assert len(eval_output["denial_results"]["dense"]) == 2
     assert len(eval_output["denial_results"]["rrf"]) == 2
 
+    # Latency separation check
+    assert "denial_summary" in eval_output
     for m in ["bm25", "dense", "rrf"]:
         summary = eval_output["summary_metrics"][m]
         assert "hit_at_5" in summary
         assert "recall_at_5" in summary
         assert "mrr_at_5" in summary
         assert "full_evidence_at_5" in summary
+        assert "median_latency_ms" in summary
+        assert summary["hit_at_5"] == 1.0
+        assert summary["full_evidence_at_5"] == 1.0
+
+        assert m in eval_output["denial_summary"]
+        assert "median_latency_ms" in eval_output["denial_summary"][m]
 
         for denial in eval_output["denial_results"][m]:
             assert denial["restricted_chunks_returned"] == 0
             assert denial["permission_violations"] == 0
             assert denial["passed"] is True
+
+
+def test_batch_3_deliberate_leak_detected_by_denial_evaluation():
+    """Verify that if a retriever leaks restricted chunks in denial cases, the violation is detected and fails."""
+    leaking_retriever = FakeRetriever(should_leak=True)
+    eval_output = evaluate_retrieval(batch=3, retriever=leaking_retriever)
+
+    for m in ["bm25", "dense", "rrf"]:
+        denial_cases = eval_output["denial_results"][m]
+        assert len(denial_cases) == 2
+        for denial in denial_cases:
+            assert denial["restricted_chunks_returned"] > 0
+            assert denial["permission_violations"] > 0
+            assert denial["passed"] is False
 
 
 # 10. Batch 3 must not modify reports/retrieval_development.md

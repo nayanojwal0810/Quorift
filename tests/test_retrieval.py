@@ -557,3 +557,59 @@ def test_registry_authoritative_when_chunk_claims_unauthorized_role(retrieval_te
     }
     assert not retrieval_test_fixture.is_candidate_valid(tampered_chunk, role="general")
     assert retrieval_test_fixture.is_candidate_valid(tampered_chunk, role="lending")
+
+
+def test_is_candidate_valid_fails_closed_missing_or_invalid_registry_roles(retrieval_test_fixture):
+    """is_candidate_valid fails closed if registry permissions are missing, empty, or invalid."""
+    valid_chunk = {
+        "chunk_id": "LND-01|1.0|2.0",
+        "document_id": "LND-01",
+        "version": "1.0",
+        "source_hash": "hash_lnd_01",
+        "allowed_roles": ["lending", "admin"],
+    }
+
+    # Backup original LND-01 registry entry
+    orig_entry = dict(retrieval_test_fixture.active_registry["LND-01"])
+
+    try:
+        # 1. Missing allowed_roles in registry
+        retrieval_test_fixture.active_registry["LND-01"] = dict(orig_entry)
+        del retrieval_test_fixture.active_registry["LND-01"]["allowed_roles"]
+        assert not retrieval_test_fixture.is_candidate_valid(valid_chunk, role="lending")
+
+        # 2. Empty allowed_roles in registry
+        retrieval_test_fixture.active_registry["LND-01"] = dict(orig_entry)
+        retrieval_test_fixture.active_registry["LND-01"]["allowed_roles"] = []
+        assert not retrieval_test_fixture.is_candidate_valid(valid_chunk, role="lending")
+
+        # 3. Non-list allowed_roles in registry
+        retrieval_test_fixture.active_registry["LND-01"] = dict(orig_entry)
+        retrieval_test_fixture.active_registry["LND-01"]["allowed_roles"] = "lending,admin"
+        assert not retrieval_test_fixture.is_candidate_valid(valid_chunk, role="lending")
+
+        # 4. Duplicate roles in registry
+        retrieval_test_fixture.active_registry["LND-01"] = dict(orig_entry)
+        retrieval_test_fixture.active_registry["LND-01"]["allowed_roles"] = ["lending", "lending"]
+        assert not retrieval_test_fixture.is_candidate_valid(valid_chunk, role="lending")
+
+        # 5. Invalid role name in registry
+        retrieval_test_fixture.active_registry["LND-01"] = dict(orig_entry)
+        retrieval_test_fixture.active_registry["LND-01"]["allowed_roles"] = ["lending", "root"]
+        assert not retrieval_test_fixture.is_candidate_valid(valid_chunk, role="lending")
+
+        # 6. Missing allowed_roles in chunk metadata
+        retrieval_test_fixture.active_registry["LND-01"] = dict(orig_entry)
+        chunk_missing_roles = dict(valid_chunk)
+        del chunk_missing_roles["allowed_roles"]
+        assert not retrieval_test_fixture.is_candidate_valid(chunk_missing_roles, role="lending")
+
+        # 7. Non-list allowed_roles in chunk metadata
+        chunk_bad_roles = dict(valid_chunk)
+        chunk_bad_roles["allowed_roles"] = "lending"
+        assert not retrieval_test_fixture.is_candidate_valid(chunk_bad_roles, role="lending")
+
+        # 8. Normal authorized retrieval still passes
+        assert retrieval_test_fixture.is_candidate_valid(valid_chunk, role="lending")
+    finally:
+        retrieval_test_fixture.active_registry["LND-01"] = orig_entry

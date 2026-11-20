@@ -27,6 +27,7 @@ data/.indexes_staging/
 data/.indexes_backup/
 data/bm25_index/
 data/qdrant_storage/
+data/.generation/
 models/
 *.gguf
 *.bin

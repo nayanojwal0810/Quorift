@@ -188,6 +188,7 @@ def evaluate_retrieval(
         raw_results: dict[str, list[dict[str, Any]]] = {m: [] for m in methods}
         denial_results: dict[str, list[dict[str, Any]]] = {m: [] for m in methods}
         latencies: dict[str, list[float]] = {m: [] for m in methods}
+        denial_latencies: dict[str, list[float]] = {m: [] for m in methods}
 
         registry_path = paths.metadata_dir / "document_registry.json"
         with open(registry_path, encoding="utf-8") as f:
@@ -205,19 +206,22 @@ def evaluate_retrieval(
             t0 = time.perf_counter()
             bm25_hits = retriever.bm25_search(q_text, role=role, candidate_k=top_k)
             t_bm25 = time.perf_counter() - t0
-            latencies["bm25"].append(t_bm25)
 
             # 2. Evaluate Dense
             t0 = time.perf_counter()
             dense_hits = retriever.dense_search(q_text, role=role, candidate_k=top_k)
             t_dense = time.perf_counter() - t0
-            latencies["dense"].append(t_dense)
 
             # 3. Evaluate RRF
             t0 = time.perf_counter()
             rrf_hits = retriever.retrieve(q_text, role=role, top_k=top_k)
             t_rrf = time.perf_counter() - t0
-            latencies["rrf"].append(t_rrf)
+
+            lat_map = {
+                "bm25": t_bm25,
+                "dense": t_dense,
+                "rrf": t_rrf,
+            }
 
             hits_map = {
                 "bm25": bm25_hits,
@@ -228,8 +232,10 @@ def evaluate_retrieval(
             for m in methods:
                 hits = hits_map[m]
                 ret_pairs = [(h["document_id"], h["section_number"]) for h in hits[:top_k]]
+                q_latency = lat_map[m]
 
                 if not is_denial:
+                    latencies[m].append(q_latency)
                     metrics = compute_retrieval_metrics(req_pairs, ret_pairs, top_k=top_k)
                     raw_results[m].append(
                         {
@@ -246,10 +252,11 @@ def evaluate_retrieval(
                             "mrr_at_5": metrics[f"mrr_at_{top_k}"],
                             "full_evidence_at_5": metrics[f"full_evidence_at_{top_k}"],
                             "top_chunk_ids": [h["chunk_id"] for h in hits[:top_k]],
-                            "latency_s": latencies[m][-1],
+                            "latency_s": q_latency,
                         }
                     )
                 else:
+                    denial_latencies[m].append(q_latency)
                     restricted_hits = [h for h in hits[:top_k] if h["document_id"] in restricted_docs]
                     perm_violations = [h for h in hits[:top_k] if role not in registry[h["document_id"]]["allowed_roles"]]
                     denial_results[m].append(
@@ -263,7 +270,7 @@ def evaluate_retrieval(
                             "permission_violations": len(perm_violations),
                             "passed": (len(restricted_hits) == 0 and len(perm_violations) == 0),
                             "top_chunk_ids": [h["chunk_id"] for h in hits[:top_k]],
-                            "latency_s": latencies[m][-1],
+                            "latency_s": q_latency,
                         }
                     )
 
@@ -290,12 +297,22 @@ def evaluate_retrieval(
                 "p95_latency_ms": percentile(m_lats, 0.95) * 1000 if m_lats else 0.0,
             }
 
+        denial_summary = {}
+        for m in methods:
+            d_lats = denial_latencies[m]
+            if d_lats:
+                denial_summary[m] = {
+                    "median_latency_ms": statistics.median(d_lats) * 1000,
+                    "p95_latency_ms": percentile(d_lats, 0.95) * 1000,
+                }
+
         return {
             "batch": batch,
             "questions": questions,
             "raw_results": raw_results,
             "denial_results": denial_results,
             "summary_metrics": summary_metrics,
+            "denial_summary": denial_summary,
         }
     finally:
         if created:
@@ -540,16 +557,18 @@ def run_evaluation(batch: int = 1) -> None:
     if denial_count > 0:
         print(f"\n[Unauthorized-Access Denial Evaluation ({denial_count} Questions)]")
         print(
-            f"{'Method':<14} | {'Denial Cases':<13} | {'Restricted Chunks':<18} | {'Perm Violations':<16} | {'Status':<10}"
+            f"{'Method':<14} | {'Denial Cases':<13} | {'Restricted Chunks':<18} | {'Perm Violations':<16} | {'Median(ms)':<10} | {'Status':<10}"
         )
-        print("-" * 80)
+        print("-" * 92)
         for m in ["bm25", "dense", "rrf"]:
             d_list = eval_output["denial_results"][m]
+            d_sum = eval_output.get("denial_summary", {}).get(m, {})
+            d_lat = d_sum.get("median_latency_ms", 0.0)
             restr_returned = sum(d["restricted_chunks_returned"] for d in d_list)
             violations = sum(d["permission_violations"] for d in d_list)
             status = "PASSED (0 leaks)" if restr_returned == 0 and violations == 0 else "FAILED"
             print(
-                f"{m:<14} | {len(d_list):<13} | {restr_returned:<18} | {violations:<16} | {status:<10}"
+                f"{m:<14} | {len(d_list):<13} | {restr_returned:<18} | {violations:<16} | {d_lat:<10.2f} | {status:<10}"
             )
 
     if batch in (1, 2):

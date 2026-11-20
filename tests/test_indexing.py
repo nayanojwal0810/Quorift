@@ -681,3 +681,148 @@ def test_verify_index_identity_permission_mismatch(sample_chunks, sample_embeddi
             validate_registry=True,
             registry_path=reg_file,
         )
+
+
+# 17. Missing, empty, invalid, and duplicate registry allowed_roles fail closed
+def test_verify_index_identity_missing_allowed_roles_fails_closed(sample_chunks, sample_embeddings, tmp_path):
+    idx_dir = tmp_path / "idx_missing_roles"
+    idx_dir.mkdir()
+    q_dir = idx_dir / "qdrant"
+    b_dir = idx_dir / "bm25"
+    chunks_path = idx_dir / "chunks.jsonl"
+    manifest_path = idx_dir / "index_manifest.json"
+    reg_file = tmp_path / "registry.json"
+
+    reg_data = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+            # LND-01 missing allowed_roles entirely
+        }
+        if c["document_id"] == "LND-01"
+        else {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+            "allowed_roles": c.get("allowed_roles", []),
+        }
+        for c in sample_chunks
+    ]
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(reg_data, f)
+
+    save_chunks_jsonl(sample_chunks, chunks_path)
+    manifest = build_manifest(sample_chunks, "test-model", 8, "quorift_chunks", str(b_dir))
+    save_manifest(manifest, manifest_path)
+    q_client = build_qdrant_index(sample_chunks, sample_embeddings, q_dir, "quorift_chunks")
+    q_client.close()
+    build_bm25_index(sample_chunks, b_dir)
+
+    with pytest.raises(ValueError, match="missing allowed_roles list"):
+        verify_index_identity(idx_dir, collection_name="quorift_chunks", validate_registry=True, registry_path=reg_file)
+
+
+def test_verify_index_identity_empty_allowed_roles_fails_closed(sample_chunks, sample_embeddings, tmp_path):
+    idx_dir = tmp_path / "idx_empty_roles"
+    idx_dir.mkdir()
+    q_dir = idx_dir / "qdrant"
+    b_dir = idx_dir / "bm25"
+    chunks_path = idx_dir / "chunks.jsonl"
+    manifest_path = idx_dir / "index_manifest.json"
+    reg_file = tmp_path / "registry.json"
+
+    reg_data = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+            "allowed_roles": [] if c["document_id"] == "LND-01" else c.get("allowed_roles", []),
+        }
+        for c in sample_chunks
+    ]
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(reg_data, f)
+
+    save_chunks_jsonl(sample_chunks, chunks_path)
+    manifest = build_manifest(sample_chunks, "test-model", 8, "quorift_chunks", str(b_dir))
+    save_manifest(manifest, manifest_path)
+    q_client = build_qdrant_index(sample_chunks, sample_embeddings, q_dir, "quorift_chunks")
+    q_client.close()
+    build_bm25_index(sample_chunks, b_dir)
+
+    with pytest.raises(ValueError, match="must have a nonempty allowed_roles list"):
+        verify_index_identity(idx_dir, collection_name="quorift_chunks", validate_registry=True, registry_path=reg_file)
+
+
+def test_verify_index_identity_invalid_roles_fails_closed(sample_chunks, sample_embeddings, tmp_path):
+    idx_dir = tmp_path / "idx_invalid_roles"
+    idx_dir.mkdir()
+    q_dir = idx_dir / "qdrant"
+    b_dir = idx_dir / "bm25"
+    chunks_path = idx_dir / "chunks.jsonl"
+    manifest_path = idx_dir / "index_manifest.json"
+    reg_file = tmp_path / "registry.json"
+
+    reg_data = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+            "allowed_roles": ["admin", "superadmin"] if c["document_id"] == "LND-01" else c.get("allowed_roles", []),
+        }
+        for c in sample_chunks
+    ]
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(reg_data, f)
+
+    save_chunks_jsonl(sample_chunks, chunks_path)
+    manifest = build_manifest(sample_chunks, "test-model", 8, "quorift_chunks", str(b_dir))
+    save_manifest(manifest, manifest_path)
+    q_client = build_qdrant_index(sample_chunks, sample_embeddings, q_dir, "quorift_chunks")
+    q_client.close()
+    build_bm25_index(sample_chunks, b_dir)
+
+    with pytest.raises(ValueError, match="contains invalid roles"):
+        verify_index_identity(idx_dir, collection_name="quorift_chunks", validate_registry=True, registry_path=reg_file)
+
+
+def test_verify_index_identity_duplicate_roles_fails_closed(sample_chunks, sample_embeddings, tmp_path):
+    idx_dir = tmp_path / "idx_duplicate_roles"
+    idx_dir.mkdir()
+    q_dir = idx_dir / "qdrant"
+    b_dir = idx_dir / "bm25"
+    chunks_path = idx_dir / "chunks.jsonl"
+    manifest_path = idx_dir / "index_manifest.json"
+    reg_file = tmp_path / "registry.json"
+
+    reg_data = [
+        {
+            "document_id": c["document_id"],
+            "active_status": True,
+            "active_version": c["version"],
+            "source_content_hash": c["source_hash"],
+            "allowed_roles": ["admin", "admin"] if c["document_id"] == "LND-01" else c.get("allowed_roles", []),
+        }
+        for c in sample_chunks
+    ]
+    import json
+    with open(reg_file, "w", encoding="utf-8") as f:
+        json.dump(reg_data, f)
+
+    save_chunks_jsonl(sample_chunks, chunks_path)
+    manifest = build_manifest(sample_chunks, "test-model", 8, "quorift_chunks", str(b_dir))
+    save_manifest(manifest, manifest_path)
+    q_client = build_qdrant_index(sample_chunks, sample_embeddings, q_dir, "quorift_chunks")
+    q_client.close()
+    build_bm25_index(sample_chunks, b_dir)
+
+    with pytest.raises(ValueError, match="contains duplicate roles"):
+        verify_index_identity(idx_dir, collection_name="quorift_chunks", validate_registry=True, registry_path=reg_file)
