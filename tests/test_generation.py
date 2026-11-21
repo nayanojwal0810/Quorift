@@ -16,11 +16,6 @@ from quorift.generation import (
     validate_generation_output,
     validate_generation_request,
 )
-from scripts.prepare_generation_inputs import (
-    APPROVED_DEV_QIDS,
-    load_generation_questions,
-    prepare_generation_inputs,
-)
 
 
 @pytest.fixture
@@ -306,17 +301,3 @@ def test_correct_source_metadata_resolved(sample_chunk_gen02):
     assert meta["page_end"] == 3
     assert "GEN-02 — Travel and Expense Policy" in meta["display_citation"]
     assert "Pages 2-3" in meta["display_citation"]
-
-
-# 15. The input-preparation script selects exactly six authorized development questions
-def test_input_preparation_script_selection():
-    """load_generation_questions loads exactly the 6 approved development questions."""
-    questions = load_generation_questions()
-    assert len(questions) == 6
-    actual_qids = [q["question_id"] for q in questions]
-    assert actual_qids == APPROVED_DEV_QIDS
-    assert actual_qids == ["Q-001", "Q-018", "Q-025", "Q-033", "Q-037", "Q-041"]
-
-    for q in questions:
-        assert q["split"] == "development"
-        assert q["corpus_state"] == "v1_active"

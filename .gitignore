@@ -33,6 +33,14 @@ models/
 *.bin
 *.safetensors
 
+# Internal evaluation datasets and metadata
+data/evaluation/
+data/metadata/fact_ledger.json
+
+# Development notebooks and internal reports
+notebooks/
+reports/retrieval_development.md
+
 # Temporary outputs, logs, environment variables
 *.log
 .env
