@@ -1,4 +1,4 @@
-"""End-to-end RAG pipeline connecting isolated child-process hybrid retrieval with Ollama generation."""
+"""End-to-end RAG pipeline connecting isolated child-process hybrid retrieval with Colab GPU generation."""
 
 import json
 from pathlib import Path
@@ -14,11 +14,10 @@ from quorift.generation import (
     VALID_ROLES,
     validate_generation_request,
 )
-from quorift.ollama_backend import (
-    OLLAMA_API_URL,
-    OLLAMA_MODEL_ID,
-    OLLAMA_REQUEST_TIMEOUT,
-    generate_grounded_answer_ollama,
+from quorift.gpu_exchange import (
+    GPU_MODEL_ID,
+    prepare_gpu_request_and_manifest,
+    validate_gpu_response_record,
 )
 
 # Inline child worker script that executes inside a separate process to isolate PyTorch/Qdrant memory
@@ -117,26 +116,31 @@ def _run_retrieval_subprocess(
         return chunks, elapsed
 
 
-def answer_question(
+def prepare_gpu_generation_request(
     question: str,
     role: str,
     indexes_dir: Path | None = None,
     registry_path: Path | None = None,
-    timeout: int = OLLAMA_REQUEST_TIMEOUT,
     retrieval_timeout: int = 60,
-    api_url: str = OLLAMA_API_URL,
-    model_id: str = OLLAMA_MODEL_ID,
-) -> dict[str, Any]:
-    """Execute complete end-to-end RAG pipeline with process-isolated retrieval and grounded generation."""
-    t_total_start = time.perf_counter()
+    model_id: str = GPU_MODEL_ID,
+    question_id: str | None = None,
+    top_k: int = 5,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Execute isolated retrieval and prepare GPU request payload and local manifest.
 
-    # 1. Validate question, role, and model inputs
+    Validates question and role, runs retrieval in a child process, revalidates
+    retrieved chunks against the trusted registry, and produces:
+    - GPU request (containing only request_id, model_id, request_sha256, messages)
+    - Local manifest (containing full context for subsequent local validation)
+    """
     if not question or not isinstance(question, str) or not question.strip():
         raise ValueError("Question must be a nonempty string")
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role '{role}'. Must be one of {sorted(VALID_ROLES)}")
-    if model_id != OLLAMA_MODEL_ID:
-        raise ValueError(f"Model '{model_id}' is not permitted. Only '{OLLAMA_MODEL_ID}' is supported.")
+    if model_id != GPU_MODEL_ID:
+        raise ValueError(
+            f"Model '{model_id}' is not permitted. Only '{GPU_MODEL_ID}' is supported."
+        )
 
     reg_file = registry_path or (paths.metadata_dir / "document_registry.json")
     if not reg_file.exists():
@@ -146,131 +150,160 @@ def answer_question(
         registry_list = json.load(f)
     registry = {r["document_id"]: r for r in registry_list}
 
-    # 2. Execute retrieval inside separate child process
-    retrieval_time = 0.0
-    try:
-        chunks, retrieval_time = _run_retrieval_subprocess(
-            question=question.strip(),
-            role=role,
-            top_k=5,
-            indexes_dir=indexes_dir,
-            registry_path=registry_path,
-            timeout=retrieval_timeout,
-        )
-    except Exception as e:
-        total_time = max(time.perf_counter() - t_total_start, retrieval_time)
-        if isinstance(e, subprocess.TimeoutExpired) or "timed out" in str(e).lower():
-            err_msg = "Retrieval timed out."
-        else:
-            err_msg = "Retrieval failed."
-        return {
-            "status": "error",
-            "answer": "",
-            "citations": [],
-            "resolved_citations": [],
-            "retrieval_time_seconds": retrieval_time,
-            "generation_time_seconds": 0.0,
-            "total_time_seconds": total_time,
-            "validation_passed": False,
-            "error": err_msg,
-            "model_id": model_id,
-            "retrieved_chunks_count": 0,
-        }
-
-    # 3. Revalidate retrieved evidence against trusted registry (fail-closed)
-    try:
-        validate_generation_request(
-            {
-                "question": question.strip(),
-                "role": role,
-                "retrieved_chunks": chunks,
-            },
-            registry,
-        )
-    except Exception:
-        total_time = max(time.perf_counter() - t_total_start, retrieval_time)
-        return {
-            "status": "error",
-            "answer": "",
-            "citations": [],
-            "resolved_citations": [],
-            "retrieval_time_seconds": retrieval_time,
-            "generation_time_seconds": 0.0,
-            "total_time_seconds": total_time,
-            "validation_passed": False,
-            "error": "Retrieved evidence failed security or integrity validation.",
-            "model_id": model_id,
-            "retrieved_chunks_count": len(chunks),
-        }
-
-    # 4. Generate grounded answer via Ollama backend
-    t_gen_start = time.perf_counter()
-    generation_time = 0.0
-    try:
-        gen_res = generate_grounded_answer_ollama(
-            question=question.strip(),
-            role=role,
-            retrieved_chunks=chunks,
-            registry=registry,
-            model_id=model_id,
-            api_url=api_url,
-            timeout=timeout,
-        )
-        generation_time = gen_res.get("generation_time_seconds", time.perf_counter() - t_gen_start)
-    except Exception as e:
-        generation_time = time.perf_counter() - t_gen_start
-        total_time = max(time.perf_counter() - t_total_start, retrieval_time + generation_time)
-        if isinstance(e, TimeoutError) or "timed out" in str(e).lower():
-            err_msg = "Generation timed out."
-        elif isinstance(e, ConnectionError) or "connect" in str(e).lower():
-            err_msg = "Generation service unavailable."
-        else:
-            err_msg = "Generation failed."
-        return {
-            "status": "error",
-            "answer": "",
-            "citations": [],
-            "resolved_citations": [],
-            "retrieval_time_seconds": retrieval_time,
-            "generation_time_seconds": generation_time,
-            "total_time_seconds": total_time,
-            "validation_passed": False,
-            "error": err_msg,
-            "model_id": model_id,
-            "retrieved_chunks_count": len(chunks),
-        }
-
-    total_time = max(
-        time.perf_counter() - t_total_start,
-        retrieval_time + generation_time,
+    # Execute isolated retrieval
+    chunks, retrieval_time = _run_retrieval_subprocess(
+        question=question.strip(),
+        role=role,
+        top_k=top_k,
+        indexes_dir=indexes_dir,
+        registry_path=registry_path,
+        timeout=retrieval_timeout,
     )
 
-    # 5. Check validation results: never display raw unvalidated text on failure
-    if not gen_res.get("validation_passed", False):
-        return {
-            "status": "error",
-            "answer": "",
-            "citations": [],
-            "resolved_citations": [],
-            "retrieval_time_seconds": retrieval_time,
-            "generation_time_seconds": generation_time,
-            "total_time_seconds": total_time,
-            "validation_passed": False,
-            "error": "Model output validation failed.",
-            "model_id": model_id,
-            "retrieved_chunks_count": len(chunks),
-        }
+    # Revalidate complete chunks against registry (fail-closed)
+    validate_generation_request(
+        {
+            "question": question.strip(),
+            "role": role,
+            "retrieved_chunks": chunks,
+        },
+        registry,
+    )
 
-    return {
-        "status": gen_res["parsed_status"],
-        "answer": gen_res["parsed_answer"],
-        "citations": gen_res["validated_citations"],
-        "resolved_citations": gen_res["resolved_citations"],
-        "retrieval_time_seconds": retrieval_time,
-        "generation_time_seconds": generation_time,
-        "total_time_seconds": total_time,
-        "validation_passed": True,
-        "error": None,
-        "model_id": model_id,
-        "retrieved_chunks_count": len(chunks),
-    }
+    # Prepare GPU request and local manifest
+    return prepare_gpu_request_and_manifest(
+        question=question.strip(),
+        role=role,
+        retrieved_chunks=chunks,
+        registry=registry,
+        retrieval_time_seconds=retrieval_time,
+        question_id=question_id,
+        model_id=model_id,
+    )
+
+
+def finalize_gpu_response(
+    gpu_response: dict[str, Any] | None,
+    manifest: dict[str, Any],
+    registry_path: Path | None = None,
+) -> dict[str, Any]:
+    """Validate returned GPU result against local manifest and current trusted registry.
+
+    Reloads the registry at finalization time to ensure policies have not been
+    revoked, deactivated, or updated since preparation.
+    """
+    reg_file = registry_path or (paths.metadata_dir / "document_registry.json")
+    if not reg_file.exists():
+        raise FileNotFoundError(f"Document registry not found: {reg_file}")
+
+    with open(reg_file, "r", encoding="utf-8") as f:
+        registry_list = json.load(f)
+    registry = {r["document_id"]: r for r in registry_list}
+
+    return validate_gpu_response_record(
+        gpu_response=gpu_response,
+        manifest=manifest,
+        registry=registry,
+    )
+
+
+def process_gpu_batch(
+    gpu_responses: list[dict[str, Any]],
+    manifests: list[dict[str, Any]],
+    registry_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Validate a batch of GPU responses against a list of local manifests.
+
+    Detects duplicate responses, missing responses, unexpected request IDs, and
+    enforces fail-closed validation for every request in the batch.
+    """
+    reg_file = registry_path or (paths.metadata_dir / "document_registry.json")
+    if not reg_file.exists():
+        raise FileNotFoundError(f"Document registry not found: {reg_file}")
+
+    with open(reg_file, "r", encoding="utf-8") as f:
+        registry_list = json.load(f)
+    registry = {r["document_id"]: r for r in registry_list}
+
+    # Map responses by request_id and detect duplicates
+    responses_by_id: dict[str, dict[str, Any]] = {}
+    duplicate_response_ids = set()
+    for resp in gpu_responses:
+        rid = resp.get("request_id")
+        if not rid:
+            continue
+        if rid in responses_by_id:
+            duplicate_response_ids.add(rid)
+        else:
+            responses_by_id[rid] = resp
+
+    results: list[dict[str, Any]] = []
+
+    for manifest in manifests:
+        rid = manifest.get("request_id")
+        qid = manifest.get("question_id")
+
+        if rid in duplicate_response_ids:
+            results.append({
+                "request_id": rid,
+                "question_id": qid,
+                "status": "error",
+                "answer": "",
+                "citations": [],
+                "resolved_citations": [],
+                "retrieval_time_seconds": manifest.get("retrieval_time_seconds", 0.0),
+                "generation_time_seconds": 0.0,
+                "total_time_seconds": manifest.get("retrieval_time_seconds", 0.0),
+                "validation_passed": False,
+                "error": f"Duplicate GPU responses received for request ID '{rid}'.",
+                "model_id": manifest.get("model_id", GPU_MODEL_ID),
+                "gpu_name": None,
+                "prompt_tokens": None,
+                "generated_tokens": None,
+            })
+            continue
+
+        resp = responses_by_id.get(rid)
+        if resp is None and manifest.get("requires_gpu") is not False:
+            results.append({
+                "request_id": rid,
+                "question_id": qid,
+                "status": "error",
+                "answer": "",
+                "citations": [],
+                "resolved_citations": [],
+                "retrieval_time_seconds": manifest.get("retrieval_time_seconds", 0.0),
+                "generation_time_seconds": 0.0,
+                "total_time_seconds": manifest.get("retrieval_time_seconds", 0.0),
+                "validation_passed": False,
+                "error": f"Missing GPU response for request ID '{rid}'.",
+                "model_id": manifest.get("model_id", GPU_MODEL_ID),
+                "gpu_name": None,
+                "prompt_tokens": None,
+                "generated_tokens": None,
+            })
+            continue
+
+        val_res = validate_gpu_response_record(
+            gpu_response=resp,
+            manifest=manifest,
+            registry=registry,
+        )
+        results.append(val_res)
+
+    return results
+
+
+def answer_question(*args: Any, **kwargs: Any) -> Any:
+    """Obsolete synchronous pipeline entry point.
+
+    Synchronous local inference has been replaced with the file-based
+    Google Colab GPU generation pipeline. Use prepare_gpu_generation_request()
+    and finalize_gpu_response() instead.
+    """
+    raise RuntimeError(
+        "Synchronous answer_question() has been replaced by the file-based"
+        " GPU pipeline. Use prepare_gpu_generation_request() to create GPU"
+        " request payloads and finalize_gpu_response() to validate returned"
+        " Colab GPU outputs."
+    )
