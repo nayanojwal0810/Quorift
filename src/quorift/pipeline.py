@@ -49,8 +49,9 @@ def main():
         full_chunks = []
         for h in hits:
             cid = h["chunk_id"]
-            if cid in retriever.chunks_by_id:
-                full_chunks.append(retriever.chunks_by_id[cid])
+            if cid not in retriever.chunks_by_id:
+                raise KeyError(f"Retrieved chunk ID '{cid}' not found in trusted chunk store.")
+            full_chunks.append(retriever.chunks_by_id[cid])
 
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump({"chunks": full_chunks}, f, ensure_ascii=False)
@@ -104,11 +105,10 @@ def _run_retrieval_subprocess(
         elapsed = time.perf_counter() - t0
 
         if proc.returncode != 0:
-            err_msg = proc.stderr.strip() if proc.stderr else f"Exit code {proc.returncode}"
-            raise RuntimeError(f"Retrieval worker process failed: {err_msg}")
+            raise RuntimeError(f"Retrieval worker process failed with exit code {proc.returncode}")
 
         if not output_file.exists():
-            raise FileNotFoundError(f"Retrieval worker did not produce output file: {output_file}")
+            raise FileNotFoundError("Retrieval worker did not produce output file")
 
         with open(output_file, "r", encoding="utf-8") as f:
             out_data = json.load(f)
@@ -130,11 +130,13 @@ def answer_question(
     """Execute complete end-to-end RAG pipeline with process-isolated retrieval and grounded generation."""
     t_total_start = time.perf_counter()
 
-    # 1. Validate question and role inputs
+    # 1. Validate question, role, and model inputs
     if not question or not isinstance(question, str) or not question.strip():
         raise ValueError("Question must be a nonempty string")
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role '{role}'. Must be one of {sorted(VALID_ROLES)}")
+    if model_id != OLLAMA_MODEL_ID:
+        raise ValueError(f"Model '{model_id}' is not permitted. Only '{OLLAMA_MODEL_ID}' is supported.")
 
     reg_file = registry_path or (paths.metadata_dir / "document_registry.json")
     if not reg_file.exists():
@@ -157,6 +159,10 @@ def answer_question(
         )
     except Exception as e:
         total_time = max(time.perf_counter() - t_total_start, retrieval_time)
+        if isinstance(e, subprocess.TimeoutExpired) or "timed out" in str(e).lower():
+            err_msg = "Retrieval timed out."
+        else:
+            err_msg = "Retrieval failed."
         return {
             "status": "error",
             "answer": "",
@@ -166,7 +172,7 @@ def answer_question(
             "generation_time_seconds": 0.0,
             "total_time_seconds": total_time,
             "validation_passed": False,
-            "error": f"Retrieval failed: {e}",
+            "error": err_msg,
             "model_id": model_id,
             "retrieved_chunks_count": 0,
         }
@@ -181,7 +187,7 @@ def answer_question(
             },
             registry,
         )
-    except Exception as e:
+    except Exception:
         total_time = max(time.perf_counter() - t_total_start, retrieval_time)
         return {
             "status": "error",
@@ -198,6 +204,8 @@ def answer_question(
         }
 
     # 4. Generate grounded answer via Ollama backend
+    t_gen_start = time.perf_counter()
+    generation_time = 0.0
     try:
         gen_res = generate_grounded_answer_ollama(
             question=question.strip(),
@@ -208,25 +216,33 @@ def answer_question(
             api_url=api_url,
             timeout=timeout,
         )
+        generation_time = gen_res.get("generation_time_seconds", time.perf_counter() - t_gen_start)
     except Exception as e:
-        total_time = max(time.perf_counter() - t_total_start, retrieval_time)
+        generation_time = time.perf_counter() - t_gen_start
+        total_time = max(time.perf_counter() - t_total_start, retrieval_time + generation_time)
+        if isinstance(e, TimeoutError) or "timed out" in str(e).lower():
+            err_msg = "Generation timed out."
+        elif isinstance(e, ConnectionError) or "connect" in str(e).lower():
+            err_msg = "Generation service unavailable."
+        else:
+            err_msg = "Generation failed."
         return {
             "status": "error",
             "answer": "",
             "citations": [],
             "resolved_citations": [],
             "retrieval_time_seconds": retrieval_time,
-            "generation_time_seconds": 0.0,
+            "generation_time_seconds": generation_time,
             "total_time_seconds": total_time,
             "validation_passed": False,
-            "error": f"Generation failed: {e}",
+            "error": err_msg,
             "model_id": model_id,
             "retrieved_chunks_count": len(chunks),
         }
 
     total_time = max(
         time.perf_counter() - t_total_start,
-        retrieval_time + gen_res.get("generation_time_seconds", 0.0),
+        retrieval_time + generation_time,
     )
 
     # 5. Check validation results: never display raw unvalidated text on failure
@@ -237,10 +253,10 @@ def answer_question(
             "citations": [],
             "resolved_citations": [],
             "retrieval_time_seconds": retrieval_time,
-            "generation_time_seconds": gen_res.get("generation_time_seconds", 0.0),
+            "generation_time_seconds": generation_time,
             "total_time_seconds": total_time,
             "validation_passed": False,
-            "error": f"Model output validation failed: {gen_res.get('validation_error')}",
+            "error": "Model output validation failed.",
             "model_id": model_id,
             "retrieved_chunks_count": len(chunks),
         }
@@ -251,7 +267,7 @@ def answer_question(
         "citations": gen_res["validated_citations"],
         "resolved_citations": gen_res["resolved_citations"],
         "retrieval_time_seconds": retrieval_time,
-        "generation_time_seconds": gen_res["generation_time_seconds"],
+        "generation_time_seconds": generation_time,
         "total_time_seconds": total_time,
         "validation_passed": True,
         "error": None,

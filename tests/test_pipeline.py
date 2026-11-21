@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 from unittest.mock import MagicMock, patch
 import pytest
@@ -161,7 +162,6 @@ def test_retrieval_subprocess_executes_separately(tmp_path):
         json.dump({"chunks": []}, f)
 
     def fake_subprocess_run(cmd, **kwargs):
-        # Emulate writing output file
         return mock_proc
 
     with patch("subprocess.run", side_effect=fake_subprocess_run) as mock_run:
@@ -245,24 +245,66 @@ def test_full_chunk_metadata_is_preserved(sample_chunk_gen02):
         assert k in sample_chunk_gen02, f"Missing required key '{k}' in chunk record"
 
 
-# 8. Retrieval worker closes resources on success and error
-def test_retrieval_worker_closes_resources():
-    worker_check_script = """
-from unittest.mock import MagicMock, patch
-import quorift.pipeline
+# 8. Executable test verifying retrieval worker closes resources on both success and failure
+def test_retrieval_worker_closes_retriever_on_success_and_failure(tmp_path):
+    input_file = tmp_path / "in.json"
+    output_file = tmp_path / "out.json"
+    with open(input_file, "w", encoding="utf-8") as f:
+        json.dump({"question": "test", "role": "general", "top_k": 5}, f)
 
-mock_retriever = MagicMock()
-with patch("quorift.retrieval.HybridRetriever", return_value=mock_retriever):
-    exec(compile(quorift.pipeline.RETRIEVAL_WORKER_SCRIPT, "<test>", "exec"))
-    # In finally: block of worker, retriever.close() must be called
-    assert mock_retriever.close.call_count == 0  # not yet run main
-print('WORKER_RESOURCE_CLEANUP_CHECKED')
-"""
-    assert "retriever.close()" in RETRIEVAL_WORKER_SCRIPT
-    assert "finally:" in RETRIEVAL_WORKER_SCRIPT
+    # Success execution: closes retriever cleanly
+    mock_retriever_ok = MagicMock()
+    mock_retriever_ok.retrieve.return_value = [{"chunk_id": "c1"}]
+    mock_retriever_ok.chunks_by_id = {"c1": {"chunk_id": "c1", "text": "sample"}}
+
+    with patch("quorift.retrieval.HybridRetriever", return_value=mock_retriever_ok):
+        worker_scope = {}
+        exec(compile(RETRIEVAL_WORKER_SCRIPT, "<worker>", "exec"), worker_scope)
+        worker_main = worker_scope["main"]
+        with patch("sys.argv", ["worker.py", str(input_file), str(output_file)]):
+            worker_main()
+
+    assert mock_retriever_ok.close.call_count == 1
+
+    # Failure execution: closes retriever cleanly when retrieve raises
+    mock_retriever_fail = MagicMock()
+    mock_retriever_fail.retrieve.side_effect = RuntimeError("Index search failed")
+
+    with patch("quorift.retrieval.HybridRetriever", return_value=mock_retriever_fail):
+        worker_scope = {}
+        exec(compile(RETRIEVAL_WORKER_SCRIPT, "<worker>", "exec"), worker_scope)
+        worker_main = worker_scope["main"]
+        with patch("sys.argv", ["worker.py", str(input_file), str(output_file)]):
+            with pytest.raises(RuntimeError, match="Index search failed"):
+                worker_main()
+
+    assert mock_retriever_fail.close.call_count == 1
 
 
-# 9. No unauthorized document reaches generation
+# 9. Missing retrieved chunk IDs cause failure and close retriever
+def test_missing_retrieved_chunk_id_causes_failure(tmp_path):
+    input_file = tmp_path / "in_missing.json"
+    output_file = tmp_path / "out_missing.json"
+    with open(input_file, "w", encoding="utf-8") as f:
+        json.dump({"question": "test", "role": "general", "top_k": 5}, f)
+
+    mock_retriever = MagicMock()
+    mock_retriever.retrieve.return_value = [{"chunk_id": "missing_chunk_999"}]
+    mock_retriever.chunks_by_id = {}  # Chunk ID is missing!
+
+    with patch("quorift.retrieval.HybridRetriever", return_value=mock_retriever):
+        worker_scope = {}
+        exec(compile(RETRIEVAL_WORKER_SCRIPT, "<worker>", "exec"), worker_scope)
+        worker_main = worker_scope["main"]
+        with patch("sys.argv", ["worker.py", str(input_file), str(output_file)]):
+            with pytest.raises(KeyError, match="Retrieved chunk ID 'missing_chunk_999' not found"):
+                worker_main()
+
+    # Must close retriever even on missing chunk ID error
+    assert mock_retriever.close.call_count == 1
+
+
+# 10. No unauthorized document reaches generation
 def test_no_unauthorized_document_reaches_generation(mock_registry_file, sample_chunk_lnd01):
     # Role 'general' cannot access LND-01
     with patch("quorift.pipeline._run_retrieval_subprocess", return_value=([sample_chunk_lnd01], 0.20)):
@@ -273,11 +315,11 @@ def test_no_unauthorized_document_reaches_generation(mock_registry_file, sample_
             assert mock_urlopen.call_count == 0
             assert res["status"] == "error"
             assert res["validation_passed"] is False
-            assert "security or integrity validation" in res["error"]
+            assert res["error"] == "Retrieved evidence failed security or integrity validation."
             assert res["answer"] == ""
 
 
-# 10. Stale evidence is rejected
+# 11. Stale evidence is rejected
 def test_stale_evidence_is_rejected(mock_registry_file, sample_chunk_gen02):
     stale_chunk = dict(sample_chunk_gen02)
     stale_chunk["source_hash"] = "altered_stale_hash_value"
@@ -289,10 +331,11 @@ def test_stale_evidence_is_rejected(mock_registry_file, sample_chunk_gen02):
             assert mock_urlopen.call_count == 0
             assert res["status"] == "error"
             assert res["validation_passed"] is False
+            assert res["error"] == "Retrieved evidence failed security or integrity validation."
             assert res["answer"] == ""
 
 
-# 11. Empty evidence returns a safe refusal without an HTTP call
+# 12. Empty evidence returns a safe refusal without an HTTP call
 def test_empty_evidence_returns_safe_refusal_without_http(mock_registry_file):
     with patch("quorift.pipeline._run_retrieval_subprocess", return_value=([], 0.15)):
         with patch("urllib.request.urlopen") as mock_urlopen:
@@ -308,7 +351,7 @@ def test_empty_evidence_returns_safe_refusal_without_http(mock_registry_file):
             assert res["error"] is None
 
 
-# 12. Valid answer and citations are returned correctly
+# 13. Valid answer and citations are returned correctly
 def test_valid_answer_and_citations_returned(mock_registry_file, sample_chunk_gen02):
     mock_http = make_mock_http_response({
         "message": {
@@ -337,11 +380,11 @@ def test_valid_answer_and_citations_returned(mock_registry_file, sample_chunk_ge
             assert meta["page_end"] == 3
 
 
-# 13. Malformed model output is not displayed as a valid answer
+# 14. Malformed model output is not displayed and does not leak raw model output in error
 def test_malformed_model_output_not_displayed(mock_registry_file, sample_chunk_gen02):
     mock_http = make_mock_http_response({
         "message": {
-            "content": "This response is not JSON format at all."
+            "content": "This response contains SECRET_PROMPT_INJECTION_OR_CONFIDENTIAL_TEXT."
         }
     })
 
@@ -352,24 +395,97 @@ def test_malformed_model_output_not_displayed(mock_registry_file, sample_chunk_g
             assert res["status"] == "error"
             assert res["validation_passed"] is False
             assert res["answer"] == ""
-            assert "validation failed" in res["error"]
+            assert res["error"] == "Model output validation failed."
+            assert "SECRET" not in res["error"]
+            assert "CONFIDENTIAL" not in res["error"]
 
 
-# 14. Retrieval failure stops generation
-def test_retrieval_failure_stops_generation(mock_registry_file):
-    with patch("quorift.pipeline._run_retrieval_subprocess", side_effect=RuntimeError("Qdrant index corrupted")):
+# 15. Retrieval failure stops generation and does not leak raw subprocess stderr or tracebacks
+def test_retrieval_failure_never_triggers_ollama(mock_registry_file):
+    with patch("quorift.pipeline._run_retrieval_subprocess", side_effect=RuntimeError("Index failed with Traceback: /private/internal/db.sqlite")):
         with patch("urllib.request.urlopen") as mock_urlopen:
             res = answer_question("Test query?", "general", registry_path=mock_registry_file)
 
             assert mock_urlopen.call_count == 0
             assert res["status"] == "error"
-            assert "Retrieval failed" in res["error"]
+            assert res["error"] == "Retrieval failed."
+            assert "Traceback" not in res["error"]
+            assert "/private/internal" not in res["error"]
             assert res["validation_passed"] is False
             assert res["answer"] == ""
 
 
-# 15. Temporary files are cleaned up
-def test_temporary_files_cleaned_up(tmp_path):
+# 16. Retrieval timeout error is sanitized
+def test_retrieval_timeout_error_sanitized(mock_registry_file):
+    with patch("quorift.pipeline._run_retrieval_subprocess", side_effect=subprocess.TimeoutExpired(cmd="python", timeout=60)):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            res = answer_question("Test query?", "general", registry_path=mock_registry_file)
+
+            assert mock_urlopen.call_count == 0
+            assert res["status"] == "error"
+            assert res["error"] == "Retrieval timed out."
+            assert res["generation_time_seconds"] == 0.0
+
+
+# 17. Raw subprocess stderr is not exposed in public error
+def test_raw_subprocess_errors_not_exposed(mock_registry_file):
+    mock_proc = MagicMock()
+    mock_proc.returncode = 1
+    mock_proc.stderr = "Traceback (most recent call last):\nFile 'C:/internal/keys.py'\nDATABASE_PASSWORD=secret"
+
+    with patch("subprocess.run", return_value=mock_proc):
+        res = answer_question("Query?", "general", registry_path=mock_registry_file)
+
+        assert res["status"] == "error"
+        assert res["error"] == "Retrieval failed."
+        assert "DATABASE_PASSWORD" not in res["error"]
+        assert "secret" not in res["error"]
+        assert "Traceback" not in res["error"]
+
+
+# 18. Generation timeout records nonzero elapsed time and sanitized error
+def test_generation_timeout_records_nonzero_elapsed_time(mock_registry_file, sample_chunk_gen02):
+    def fake_ollama_call(*args, **kwargs):
+        time.sleep(0.02)
+        raise TimeoutError("Ollama generation request timed out after 300 seconds.")
+
+    with patch("quorift.pipeline._run_retrieval_subprocess", return_value=([sample_chunk_gen02], 0.20)):
+        with patch("quorift.pipeline.generate_grounded_answer_ollama", side_effect=fake_ollama_call):
+            res = answer_question("Lodging?", "general", registry_path=mock_registry_file)
+
+            assert res["status"] == "error"
+            assert res["error"] == "Generation timed out."
+            assert res["generation_time_seconds"] > 0.0
+            assert res["total_time_seconds"] >= res["retrieval_time_seconds"] + res["generation_time_seconds"]
+            assert res["answer"] == ""
+
+
+# 19. Generation service unavailable error is sanitized
+def test_generation_service_unavailable_sanitized(mock_registry_file, sample_chunk_gen02):
+    def fake_ollama_conn_err(*args, **kwargs):
+        raise ConnectionError("Could not connect to local Ollama service at http://127.0.0.1:11434")
+
+    with patch("quorift.pipeline._run_retrieval_subprocess", return_value=([sample_chunk_gen02], 0.20)):
+        with patch("quorift.pipeline.generate_grounded_answer_ollama", side_effect=fake_ollama_conn_err):
+            res = answer_question("Lodging?", "general", registry_path=mock_registry_file)
+
+            assert res["status"] == "error"
+            assert res["error"] == "Generation service unavailable."
+            assert "http://" not in res["error"]
+            assert "127.0.0.1" not in res["error"]
+
+
+# 20. Prevent accidental model substitution in public pipeline API
+def test_unauthorized_model_substitution_rejected(mock_registry_file):
+    with pytest.raises(ValueError, match="Model 'llama3:8b' is not permitted"):
+        answer_question("Query?", "general", model_id="llama3:8b", registry_path=mock_registry_file)
+
+    with pytest.raises(ValueError, match="Model 'gpt-4' is not permitted"):
+        answer_question("Query?", "general", model_id="gpt-4", registry_path=mock_registry_file)
+
+
+# 21. Temporary files are cleaned up on success and error
+def test_temporary_files_cleaned_up_on_success_and_error(tmp_path):
     created_dirs = []
     real_tempdir = tempfile.TemporaryDirectory
 
@@ -380,27 +496,39 @@ def test_temporary_files_cleaned_up(tmp_path):
         def __enter__(self):
             path = self.temp_dir.__enter__()
             created_dirs.append(path)
-            # Create a mock retrieval output file in this directory
-            out_file = Path(path) / "retrieval_output.json"
-            with open(out_file, "w", encoding="utf-8") as f:
-                json.dump({"chunks": []}, f)
             return path
 
         def __exit__(self, exc_type, exc_val, exc_tb):
             return self.temp_dir.__exit__(exc_type, exc_val, exc_tb)
 
-    mock_proc = MagicMock()
-    mock_proc.returncode = 0
+    # Success case
+    mock_proc_ok = MagicMock()
+    mock_proc_ok.returncode = 0
+
+    def fake_run_ok(cmd, **kwargs):
+        out_path = Path(cmd[4])
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump({"chunks": []}, f)
+        return mock_proc_ok
 
     with patch("tempfile.TemporaryDirectory", TrackingTempDir):
-        with patch("subprocess.run", return_value=mock_proc):
+        with patch("subprocess.run", side_effect=fake_run_ok):
             _run_retrieval_subprocess("Test question?", "general")
 
     assert len(created_dirs) == 1
     assert not Path(created_dirs[0]).exists()
 
+    # Error case (worker fails with exception)
+    with patch("tempfile.TemporaryDirectory", TrackingTempDir):
+        with patch("subprocess.run", side_effect=RuntimeError("Subprocess failed")):
+            with pytest.raises(RuntimeError):
+                _run_retrieval_subprocess("Test question?", "general")
 
-# 16. Timing fields are correct
+    assert len(created_dirs) == 2
+    assert not Path(created_dirs[1]).exists()
+
+
+# 22. Timing fields are correct
 def test_timing_fields_are_correct(mock_registry_file, sample_chunk_gen02):
     mock_http = make_mock_http_response({
         "message": {
@@ -421,14 +549,14 @@ def test_timing_fields_are_correct(mock_registry_file, sample_chunk_gen02):
             assert res["total_time_seconds"] >= res["retrieval_time_seconds"]
 
 
-# 17. Existing Qwen model configuration remains unchanged
+# 23. Existing Qwen model configuration remains unchanged
 def test_existing_qwen_model_configuration_unchanged():
     assert OLLAMA_MODEL_ID == "qwen3:4b-instruct-2507-q4_K_M"
     assert OLLAMA_API_URL == "http://127.0.0.1:11434/api/chat"
     assert OLLAMA_REQUEST_TIMEOUT == 300
 
 
-# 18. CLI ask.py execution test
+# 24. CLI ask.py execution test
 def test_ask_cli_smoke(sample_chunk_gen02, capsys):
     mock_result = {
         "status": "answered",
