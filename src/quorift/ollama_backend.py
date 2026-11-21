@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import socket
 import time
 from typing import Any
 import urllib.error
@@ -77,16 +78,21 @@ def call_ollama_chat(
                 f"Please pull the required model first using: ollama pull {model_id}"
             ) from e
         raise RuntimeError(f"Ollama HTTP error {e.code}: {e.reason}. Details: {err_body}") from e
+    except (TimeoutError, socket.timeout) as e:
+        raise TimeoutError(
+            f"Ollama generation request timed out after {timeout} seconds. "
+            f"Model '{model_id}' inference took longer than permitted."
+        ) from e
     except urllib.error.URLError as e:
+        if isinstance(e.reason, (TimeoutError, socket.timeout)) or "timed out" in str(e.reason).lower():
+            raise TimeoutError(
+                f"Ollama generation request timed out after {timeout} seconds. "
+                f"Model '{model_id}' inference took longer than permitted."
+            ) from e
         raise ConnectionError(
             f"Could not connect to local Ollama service at {api_url}. "
             f"Please ensure Ollama is installed and running (`ollama serve`). "
             f"Underlying error: {e.reason}"
-        ) from e
-    except TimeoutError as e:
-        raise TimeoutError(
-            f"Ollama generation request timed out after {timeout} seconds. "
-            f"Model '{model_id}' inference took longer than permitted."
         ) from e
 
 
@@ -126,8 +132,17 @@ def generate_grounded_answer_ollama(
             "validation_passed": True,
             "validation_error": None,
             "generation_time_seconds": elapsed,
+            "total_duration_ns": None,
+            "load_duration_ns": None,
+            "prompt_eval_duration_ns": None,
+            "eval_duration_ns": None,
+            "total_duration_seconds": None,
+            "load_duration_seconds": None,
+            "prompt_eval_duration_seconds": None,
+            "eval_duration_seconds": None,
             "prompt_eval_count": 0,
             "eval_count": 0,
+            "eval_tokens_per_second": None,
         }
 
     # 3. Construct chat messages using shared grounded prompt logic
@@ -176,6 +191,34 @@ def generate_grounded_answer_ollama(
         validation_passed = False
         validation_error = str(e)
 
+    total_duration_ns = raw_response.get("total_duration")
+    load_duration_ns = raw_response.get("load_duration")
+    prompt_eval_duration_ns = raw_response.get("prompt_eval_duration")
+    eval_duration_ns = raw_response.get("eval_duration")
+    prompt_eval_count = raw_response.get("prompt_eval_count")
+    eval_count = raw_response.get("eval_count")
+
+    total_duration_seconds = (
+        round(total_duration_ns / 1e9, 4) if isinstance(total_duration_ns, (int, float)) else None
+    )
+    load_duration_seconds = (
+        round(load_duration_ns / 1e9, 4) if isinstance(load_duration_ns, (int, float)) else None
+    )
+    prompt_eval_duration_seconds = (
+        round(prompt_eval_duration_ns / 1e9, 4) if isinstance(prompt_eval_duration_ns, (int, float)) else None
+    )
+    eval_duration_seconds = (
+        round(eval_duration_ns / 1e9, 4) if isinstance(eval_duration_ns, (int, float)) else None
+    )
+
+    eval_tokens_per_second = None
+    if (
+        isinstance(eval_count, (int, float))
+        and isinstance(eval_duration_ns, (int, float))
+        and eval_duration_ns > 0
+    ):
+        eval_tokens_per_second = round(eval_count / (eval_duration_ns / 1e9), 2)
+
     return {
         "question_id": question_id,
         "model_id": model_id,
@@ -187,8 +230,15 @@ def generate_grounded_answer_ollama(
         "validation_passed": validation_passed,
         "validation_error": validation_error,
         "generation_time_seconds": elapsed,
-        "prompt_eval_count": raw_response.get("prompt_eval_count"),
-        "eval_count": raw_response.get("eval_count"),
-        "total_duration_ns": raw_response.get("total_duration"),
-        "load_duration_ns": raw_response.get("load_duration"),
+        "total_duration_ns": total_duration_ns,
+        "load_duration_ns": load_duration_ns,
+        "prompt_eval_duration_ns": prompt_eval_duration_ns,
+        "eval_duration_ns": eval_duration_ns,
+        "total_duration_seconds": total_duration_seconds,
+        "load_duration_seconds": load_duration_seconds,
+        "prompt_eval_duration_seconds": prompt_eval_duration_seconds,
+        "eval_duration_seconds": eval_duration_seconds,
+        "prompt_eval_count": prompt_eval_count,
+        "eval_count": eval_count,
+        "eval_tokens_per_second": eval_tokens_per_second,
     }
